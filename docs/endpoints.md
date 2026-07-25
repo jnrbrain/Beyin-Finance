@@ -1,4 +1,4 @@
-# Beyin Finance Developer API Reference
+﻿# Beyin Finance Developer API Reference
 
 **Base URL:** `https://08rxd1g3ik.execute-api.eu-central-1.amazonaws.com/BeyinAPI`
 
@@ -176,8 +176,8 @@ No body params. Returns last 100 notifications sorted newest first.
 | `entry_condition` | string | Yes | Entry condition in natural language |
 | `tp_condition` | string | Yes* | Take profit (*required for signal_orders) |
 | `sl_condition` | string | Yes* | Stop loss (*required for signal_orders) |
-| `visibility` | string | No | `"private"` (default) or `"public"` |
-| `price_per_signal` | number | No | 0-10, required if visibility=public |
+
+Strategy is always created as **private**. Use `strategy_visibility` to make it public after successful backtest.
 
 **Cost:** 1.0 ⚡ total (0.05 upfront + 0.95 on success)
 
@@ -188,7 +188,7 @@ No body params. Returns last 100 notifications sorted newest first.
 
 **Response:**
 ```json
-{"ok": true, "data": {"strategy_name": "emacross", "version": 1, "signal_mode": "signal_orders", "status": "generating", "cost_upfront": 0.05, "cost_on_success": 0.15}}
+{"ok": true, "data": {"strategy_name": "emacross", "version": 1, "signal_mode": "signal_orders", "status": "generating", "cost_upfront": 0.05, "cost_on_success": 0.95}}
 ```
 
 **Errors:** 402 insufficient credits, 409 name taken.
@@ -220,21 +220,39 @@ Bumps version, triggers AI regeneration. **Cancels all marketplace copiers/subsc
 
 `POST /user?request_type=strategy_visibility`
 
-| Field | Type | Required |
-|-------|------|----------|
-| `strategy_name` | string | Yes |
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `strategy_name` | string | Yes | |
 | `visibility` | string | Yes | `"private"` or `"public"` |
-| `price_per_signal` | number | No | 0-10 for public |
+| `credits_per_signal` | number | Yes* | 0.01-10 (*required for public) — fee charged to subscribers per signal |
+| `timeframe` | string | Yes* | (*required for public) e.g. `"4h"` |
+| `coins` | string[] | Yes* | (*required for public) coins to list |
 
-**Example body:**
+**Requirements for public:** Must have a successful `full_range` backtest. Only coins with **total_return > 0%** are eligible.
+
+**Example body (make public):**
 ```json
-{"strategy_name": "emacross", "visibility": "public", "price_per_signal": 0.5}
+{"strategy_name": "emacross", "visibility": "public", "credits_per_signal": 0.5, "timeframe": "4h", "coins": ["BTC", "ETH", "SOL"]}
 ```
 
-**Response:**
+**Response (public):**
 ```json
-{"ok": true, "data": {"strategy_name": "emacross", "visibility": "public", "price_per_signal": 0.5}}
+{"ok": true, "data": {"strategy_name": "emacross", "visibility": "public", "credits_per_signal": 0.5, "timeframe": "4h", "eligible_coins": ["BTC", "ETH"], "rejected_coins": {"SOL": "negative_return"}}}
 ```
+
+**Example body (make private):**
+```json
+{"strategy_name": "emacross", "visibility": "private"}
+```
+
+**Response (private):**
+```json
+{"ok": true, "data": {"strategy_name": "emacross", "visibility": "private"}}
+```
+
+**Errors:** 400 no full_range backtest, 400 no coins with positive return, 400 missing required fields for public.
+
+**How fees work:** When a subscriber receives a signal from your public strategy, `credits_per_signal` is deducted from their balance and credited to you (minus platform fee).
 
 ### Get Strategy Versions
 
@@ -679,7 +697,7 @@ No body params. Returns full bot settings + available coins.
 
 **Response:**
 ```json
-{"ok": true, "data": {"listings": [{"listing_id": "lst_abc123", "strategy_name": "emacross", "owner": "MT***A", "market_type": "spot", "timeframe": "4h", "signal_mode": "full", "listed_coins": ["BTC", "ETH"], "signal_price_credits": 0.5, "total_pnl_pct": 12.5, "win_rate_pct": 68.0, "subscriber_count": 5, "total_signals_delivered": 42}], "last_evaluated_key": "base64..."}}
+{"ok": true, "data": {"listings": [{"listing_id": "lst_abc123", "strategy_name": "emacross", "owner": "MT***A", "market_type": "spot", "timeframe": "4h", "signal_mode": "full", "listed_coins": ["BTC", "ETH"], "credits_per_signal": 0.5, "total_pnl_pct": 12.5, "win_rate_pct": 68.0, "subscriber_count": 5, "total_signals_delivered": 42}], "last_evaluated_key": "base64..."}}
 ```
 
 ### Listing Detail
@@ -704,7 +722,7 @@ No body params. Returns full bot settings + available coins.
     "leverage": 1,
     "signal_mode": "full",
     "listed_coins": ["BTC", "ETH"],
-    "signal_price_credits": 0.5,
+    "credits_per_signal": 0.5,
     "total_pnl_pct": 12.5,
     "win_rate_pct": 68.0,
     "subscriber_count": 5,
@@ -736,7 +754,7 @@ No body params. Returns full bot settings + available coins.
 
 **Response:**
 ```json
-{"ok": true, "data": {"subscription_id": "sub_xyz789", "listing_id": "lst_abc123", "strategy_name": "emacross", "active_coins": ["BTC", "ETH"], "signal_price_credits": 0.5, "bindings_created": 2}}
+{"ok": true, "data": {"subscription_id": "sub_xyz789", "listing_id": "lst_abc123", "strategy_name": "emacross", "active_coins": ["BTC", "ETH"], "credits_per_signal": 0.5, "bindings_created": 2}}
 ```
 
 **Errors:** 403 license expired, 400 invalid coins / plan limit / self-subscribe.
@@ -762,7 +780,7 @@ No body params.
 
 **Response:**
 ```json
-{"ok": true, "data": {"listings": [{"listing_id": "lst_abc123", "strategy_name": "emacross", "status": "active", "signal_mode": "full", "market_type": "spot", "timeframe": "4h", "listed_coins": ["BTC"], "signal_price_credits": 0.5, "subscriber_count": 5, "total_signals_delivered": 42, "total_credits_earned": 21.0, "total_pnl_pct": 12.5, "win_rate_pct": 68.0, "created_at": 1784000000}]}}
+{"ok": true, "data": {"listings": [{"listing_id": "lst_abc123", "strategy_name": "emacross", "status": "active", "signal_mode": "full", "market_type": "spot", "timeframe": "4h", "listed_coins": ["BTC"], "credits_per_signal": 0.5, "subscriber_count": 5, "total_signals_delivered": 42, "total_credits_earned": 21.0, "total_pnl_pct": 12.5, "win_rate_pct": 68.0, "created_at": 1784000000}]}}
 ```
 
 ### My Subscriptions
@@ -773,7 +791,7 @@ No body params.
 
 **Response:**
 ```json
-{"ok": true, "data": {"subscriptions": [{"subscription_id": "sub_xyz789", "listing_id": "lst_abc123", "creator_beyin_id": "ABC123", "selected_coins": ["BTC"], "status": "active", "signal_price_credits": 0.5, "signals_received": 12, "credits_spent": 6.0, "created_at": 1784000000}]}}
+{"ok": true, "data": {"subscriptions": [{"subscription_id": "sub_xyz789", "listing_id": "lst_abc123", "creator_beyin_id": "ABC123", "selected_coins": ["BTC"], "status": "active", "credits_per_signal": 0.5, "signals_received": 12, "credits_spent": 6.0, "created_at": 1784000000}]}}
 ```
 
 ### Publish Strategy
@@ -784,7 +802,7 @@ No body params.
 |-------|------|----------|-------------|
 | `strategy_key` | string | Yes | Lowercase alphanumeric |
 | `description` | string | No | Max 500 chars, no HTML |
-| `signal_price_credits` | number | Yes | 0.01 - 100.0 |
+| `credits_per_signal` | number | Yes | 0.01 - 100.0 |
 | `signal_mode` | string | Yes | `"full"` or `"signal_only"` |
 | `requested_coins` | string[] | Yes | Coins to list |
 
@@ -792,12 +810,12 @@ No body params.
 
 **Example body:**
 ```json
-{"strategy_key": "emacross", "description": "EMA crossover for BTC", "signal_price_credits": 0.5, "signal_mode": "full", "requested_coins": ["BTC", "ETH", "SOL"]}
+{"strategy_key": "emacross", "description": "EMA crossover for BTC", "credits_per_signal": 0.5, "signal_mode": "full", "requested_coins": ["BTC", "ETH", "SOL"]}
 ```
 
 **Response:**
 ```json
-{"ok": true, "data": {"listing_id": "lst_abc123", "status": "active", "listed_coins": ["BTC", "ETH"], "rejected_coins": {"SOL": "negative_pnl", "DOGE": "insufficient_trades"}, "signal_price_credits": 0.5, "signal_mode": "full", "backtest_summary": {"BTC": {"pnl_pct": 12.5, "win_rate": 68.0, "trades": 42}}}}
+{"ok": true, "data": {"listing_id": "lst_abc123", "status": "active", "listed_coins": ["BTC", "ETH"], "rejected_coins": {"SOL": "negative_pnl", "DOGE": "insufficient_trades"}, "credits_per_signal": 0.5, "signal_mode": "full", "backtest_summary": {"BTC": {"pnl_pct": 12.5, "win_rate": 68.0, "trades": 42}}}}
 ```
 
 **Errors:** 400 no full_range backtest found, 400 no profitable coins.
@@ -809,19 +827,19 @@ No body params.
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `listing_id` | string | Yes | |
-| `signal_price_credits` | number | No | 0.01 - 100.0 |
+| `credits_per_signal` | number | No | 0.01 - 100.0 |
 | `description` | string | No | Max 500 chars |
 
 ⚠️ **Price change cancels ALL active subscriptions** and removes bindings.
 
 **Example body:**
 ```json
-{"listing_id": "lst_abc123", "signal_price_credits": 1.0, "description": "Updated description"}
+{"listing_id": "lst_abc123", "credits_per_signal": 1.0, "description": "Updated description"}
 ```
 
 **Response:**
 ```json
-{"ok": true, "data": {"listing_id": "lst_abc123", "updated_fields": ["signal_price_credits"], "subscriptions_cancelled": 3, "note": "Price changed 0.5 -> 1.0. All subscriptions cancelled."}}
+{"ok": true, "data": {"listing_id": "lst_abc123", "updated_fields": ["credits_per_signal"], "subscriptions_cancelled": 3, "note": "Price changed 0.5 -> 1.0. All subscriptions cancelled."}}
 ```
 
 ### Unpublish Listing
