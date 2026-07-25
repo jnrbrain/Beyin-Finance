@@ -125,6 +125,21 @@ No body params. Returns last 100 notifications sorted newest first.
 
 ## Economic News & Calendar
 
+### Get Available Coins
+
+`POST /user?request_type=available_coins`
+
+No body params. No auth required. Returns coins that are TRADING on Binance AND have kline data available for backtest/signals.
+
+**Response:**
+```json
+{"ok": true, "data": {"coins": ["ADA", "AVAX", "BNB", "BTC", "DOGE", "DOT", "ETH", "LINK", "SOL", "XRP"], "count": 285}}
+```
+
+Updated daily by BinancePrecisionLister scheduler.
+
+---
+
 ### Get Economic Data
 
 `POST /user?request_type=economic_news`
