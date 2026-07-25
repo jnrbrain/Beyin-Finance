@@ -29,13 +29,17 @@ Generate API keys from the mobile app (Settings → API Keys) or via `api_key_ge
 
 ## Plan Limits
 
-| Plan | Max Strategies | Max Coins per Strategy | Credits/month |
-|------|---------------|----------------------|---------------|
-| free | 1 | 5 | 0 |
-| starter | 1 | 5 | 2 |
-| plus | 2 | 15 | 5 |
-| pro | 5 | 30 | 10 |
-| investor | 10 | 200 | 25 |
+| Plan | Monthly | Annual | Max Strategies | Max Coins/Strategy | Credits/month |
+|------|---------|--------|---------------|-------------------|---------------|
+| free | - | - | 1 | 5 | 0 |
+| starter | 10 USDT | 60 USDT | 1 | 5 | 2 |
+| plus | 20 USDT | 120 USDT | 2 | 15 | 5 |
+| pro | 50 USDT | 300 USDT | 5 | 30 | 10 |
+| investor | 100 USDT | 600 USDT | 10 | 200 | 25 |
+
+:::{note}
+**How to pay:** Send USDT via Binance Pay to ID `863 826 81`. Payment is processed automatically within 2 minutes. License duration is calculated based on the amount sent. Send min. 1 USDT for a 1-month demo.
+:::
 
 ---
 
