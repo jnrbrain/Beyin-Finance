@@ -217,7 +217,7 @@ payloads are removed from the response.
 Uses the same request fields as `binance_order`, but does **not** place an
 exchange order. The server applies Binance price/quantity precision, validates
 TP/SL direction and checks the current minimum-notional rule before returning
-the irreversible-operation summary.
+the irreversible-operation summary. OCO is currently supported for Spot only.
 
 **Response:**
 ```json
@@ -257,14 +257,18 @@ Requires Binance API keys linked.
 | `entry_price` | number | No | Reference entry price (for logging) |
 | `take_profit_price` | number | Yes | Take-profit limit price |
 | `stop_loss_price` | number | Yes | Stop-loss trigger price |
-| `market_type` | string | No | `"spot"` (default) or `"futures"` |
+| `market_type` | string | No | `"spot"` (default). Futures OCO is currently rejected. |
 | `signal_order_id` | string | No | Links to an existing signal record |
 | `signal_position_key` | string | No | If provided, updates the opened signal with OCO info |
+| `idempotency_key` | string | Yes | 16-128 letters, numbers, `_` or `-`; generate before preview and reuse for every retry |
 
 :::{note}
 - Prices and quantities are automatically formatted to Binance precision requirements (from `binanceExchangeInfo.json`)
 - The OCO exit side is automatically determined: if your entry `side` is `BUY` (long), exit is `SELL`
 - Order is routed through the Lightsail proxy (statik IP: Frankfurt)
+- The same idempotency key with a different normalized order payload returns HTTP 409.
+- Before Binance is called, an audit intent must be persisted in the table configured
+  by `AUDIT_TABLE_NAME`. Missing table configuration or write permission fails closed.
 :::
 
 **Example body:**
@@ -277,7 +281,8 @@ Requires Binance API keys linked.
   "take_profit_price": 67000,
   "stop_loss_price": 63000,
   "market_type": "spot",
-  "signal_position_key": "emacross#BTC#1784850000"
+  "signal_position_key": "emacross#BTC#1784850000",
+  "idempotency_key": "oco_1784990000000_a1b2c3d4e5f60708"
 }
 ```
 
@@ -298,14 +303,31 @@ Requires Binance API keys linked.
       {"symbol": "BTCUSDT", "orderId": 222, "type": "STOP_LOSS_LIMIT"}
     ],
     "signal_order_id": "",
-    "signal_position_key": "emacross#BTC#1784850000"
+    "signal_position_key": "emacross#BTC#1784850000",
+    "idempotency_key": "oco_1784990000000_a1b2c3d4e5f60708",
+    "status": "submitted"
   }
 }
 ```
 
+Repeating the same key and normalized payload after completion returns the
+stored response with `idempotent_replay=true`; Binance is not called twice.
+
+If Binance acceptance cannot be confirmed, the API conservatively returns HTTP
+202 instead of declaring failure:
+
+```json
+{"ok": true, "data": {"status": "unknown_checking", "idempotency_key": "oco_1784990000000_a1b2c3d4e5f60708", "client_order_id": "BFOCO_MTHG7A_0123456789abcdef", "message": "Binance acceptance could not be confirmed; no duplicate was submitted"}}
+```
+
+The client must not create a new key or blindly resubmit in this state. It must
+show `Unknown/Checking` and direct the user to Orders/Binance. The Binance
+`listClientOrderId` is deterministically derived from the idempotency key.
+
 **Errors:**
-- 400: Missing/invalid fields
-- 502: Binance rejected the order (insufficient balance, invalid price, etc.)
+- 400: Missing/invalid fields, Futures market, or invalid idempotency key
+- 409: The key was already used with a different normalized order
+- 503: Durable safety or audit state could not be persisted; Binance was not called
 
 **Close reasons (tracked by position_tracker):**
 | Reason | Description |
@@ -370,6 +392,9 @@ No body params. Schedules account for deletion after 30 days.
 
 :::{warning}
 Account is soft-deleted: disabled for 30 days, then permanently removed. Logging in within 30 days automatically restores the account. Credits and strategies are preserved during the grace period.
+The deletion intent is written to the persistent audit trail before the account
+state changes. If audit persistence is unavailable, the request returns 503 and
+deletion is not scheduled.
 :::
 
 **Response:**
@@ -646,7 +671,8 @@ cannot be verified, deletion fails closed and no user-visible data is removed.
 - 403: authenticated user is not the owner
 - 404: strategy not found
 - 409: active marketplace listing must be unpublished first
-- 503: marketplace state could not be verified; nothing was deleted
+- 503: marketplace state or the persistent audit trail could not be verified;
+  nothing was deleted
 
 ---
 
@@ -812,8 +838,11 @@ Status values: `running`, `completed`, `failed`
 | `job_id` | string | Yes |
 
 Only a job whose persisted progress state is `failed` can be refunded. Refund
-state is persisted so a repeated request returns the existing result rather than
-issuing a second credit.
+claim and credit increment are committed in one conditional DynamoDB update.
+The claim is keyed by a SHA-256-derived job marker on the authenticated user
+record. Concurrent or repeated requests therefore return the existing result
+rather than issuing a second credit. S3 `progress.json` is a display/cache marker
+and is not the idempotency authority.
 
 **First successful response:**
 ```json
@@ -826,6 +855,15 @@ issuing a second credit.
 ```
 
 **Errors:** 400 job is not failed, 404 job/progress/manifest not found.
+
+The same atomic claim is used when `action=status` observes a failed job and
+performs the automatic refund. HTTP 500 indicates that the durable refund claim
+could not be written; the client may safely retry.
+
+Backtest credit deductions and refunds also emit a secret-free
+`credit_movement` record to the table configured by `AUDIT_TABLE_NAME`. Audit
+table deployment and Lambda `PutItem` permission are required before production
+acceptance.
 
 ### Delete Backtest
 
@@ -1652,6 +1690,127 @@ No body params.
 ```
 
 ---
+
+## Internal Scheduled Operations
+
+These operations are not public API endpoints. They are invoked directly by AWS
+services and rely on Lambda invoke IAM permissions as the security boundary.
+Requests carrying `requestContext`, an HTTP path/method or headers are rejected.
+
+### Reconcile uncertain OCO requests
+
+**Direct Lambda event:**
+
+```json
+{"__internal_action": "oco_reconcile"}
+```
+
+Recommended EventBridge schedule: once per minute.
+
+The handler scans a bounded number of user records for OCO claims in `pending`,
+`unknown` or `stale_unknown` state. Claims younger than the configured minimum
+age are skipped. Older claims are queried through Binance
+`GET /api/v3/orderList` using the deterministic `origClientOrderId`.
+
+| Environment variable | Default | Description |
+|----------------------|---------|-------------|
+| `OCO_RECONCILE_MIN_AGE_SECONDS` | `60` | Minimum age before the first exchange query |
+| `OCO_RECONCILE_STALE_SECONDS` | `900` | Age after which an unresolved claim requires manual review |
+| `OCO_RECONCILE_MAX_USERS` | `200` | Maximum user records scanned per invocation; hard cap 1000 |
+
+Successful reconciliation changes the durable claim to `completed` and stores
+the exchange order-list response for idempotent client replay. An unresolved
+stale claim remains protected from duplicate submission, is marked
+`stale_unknown`, and emits a structured `OCO_RECONCILIATION_STALE` log event.
+
+**Result:**
+
+```json
+{"ok": true, "data": {"users_scanned": 42, "claims_checked": 2, "resolved": 1, "stale_unknown": 1, "errors": 1}}
+```
+
+:::{warning}
+Create a CloudWatch metric filter/alarm for `OCO_RECONCILIATION_STALE` before
+real-order production launch. The current bounded user-table scan is a migration
+bridge; at larger scale, move claims to a dedicated order-request table with a
+status/next-check GSI and TTL.
+:::
+
+### Migrate Binance credentials to KMS v1
+
+This is a controlled one-way migration, not a scheduled public endpoint.
+
+**Direct Lambda event:**
+
+```json
+{"__internal_action": "binance_credentials_migrate", "max_users": 100}
+```
+
+New Binance links/registrations store each small credential as a `kms:v1:`
+prefixed KMS ciphertext. Encryption/decryption binds the ciphertext to:
+
+```json
+{"purpose": "binance_credentials", "beyin_id": "MTHG7A"}
+```
+
+This prevents a ciphertext copied from one user record from being decrypted
+under another user's context. New writes fail closed when
+`BINANCE_CREDENTIAL_KMS_KEY_ID` is absent; they never fall back to XOR.
+
+The migration:
+
+1. scans a bounded batch;
+2. skips empty and already-KMS records;
+3. decrypts legacy XOR values in memory;
+4. encrypts both values with KMS;
+5. conditionally replaces both only if their legacy values are unchanged.
+
+**Result:**
+
+```json
+{"ok": true, "data": {"users_scanned": 100, "migrated": 92, "already_kms": 5, "without_credentials": 2, "conflicts": 1, "errors": 0}}
+```
+
+Required configuration for the active `BeyinFinanceUserAPI` package, including
+its embedded User and Telegram modules:
+
+| Setting | Requirement |
+|---------|-------------|
+| `BINANCE_CREDENTIAL_KMS_KEY_ID` | KMS key ARN, ID or alias |
+| IAM | `kms:Encrypt` for credential-writing Lambda; `kms:Decrypt` for credential consumers |
+| Key policy | Limit use to the expected Lambda roles and encryption context |
+
+Deployment order is mandatory: deploy dual-read consumers first, configure/test
+KMS, enable new writes, then run migration batches. Keep legacy read support and
+`SECRET_KEY` until the legacy credential count is verified as zero and rollback
+windows have expired. Never log plaintext or ciphertext values.
+
+`BinanceRequestElasticIP1` is retired and is not a deployment target or active
+credential consumer. Private Binance calls require the Lightsail proxy
+configuration (`BINANCE_PROXY_URL` and `BINANCE_PROXY_SECRET`) and fail closed
+when it is absent; no request is sent to the deleted Lambda/API route.
+
+## Logging and sensitive-data policy
+
+The API does not log raw request events, headers or bodies. Request logs contain
+only bounded metadata such as path, method, request type, request ID, header
+count, non-sensitive body-key names and whether a body exists.
+
+The following values are recursively redacted from persistent S3 logs and
+embedded exception text:
+
+- Authorization/Bearer tokens and JWTs
+- Beyin passwords
+- Binance and developer API keys/secrets
+- Google identity tokens
+- proxy secrets
+- `kms:v1` ciphertext
+
+The Flutter release crash handler records a bounded, sanitized exception string
+instead of attaching API request/response bodies or raw exception objects.
+Analytics and Crashlytics collection remain disabled outside release mode.
+Sentinel contract tests must accompany changes to authentication, credential,
+network logging or crash reporting.
 
 ## Errors
 
