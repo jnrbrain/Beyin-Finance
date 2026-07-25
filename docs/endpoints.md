@@ -333,7 +333,6 @@ Backtests run asynchronously with parallel workers. Flow: `run` → `status` (po
 | `start_ts` | number | Yes | | Start unix timestamp |
 | `end_ts` | number | Yes | | End unix timestamp |
 | `commission` | number | No | 0.2 | Commission % |
-| `spread` | number | No | 0.1 | Spread % |
 | `position_pct` | number | No | 100 | Position size % |
 | `min_gap_candles` | number | No | 4 | Min candles between signals |
 | `max_wait_days` | number | No | 30 | Max days to wait for fill |
