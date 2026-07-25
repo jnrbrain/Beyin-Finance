@@ -38,7 +38,11 @@ Generate API keys from the mobile app (Settings → API Keys) or via `api_key_ge
 | investor | 100 USDT | 600 USDT | 10 | 200 | 25 |
 
 :::{note}
-**How to pay:** Send USDT via Binance Pay to ID `863 826 81`. Payment is processed automatically within 2 minutes. License duration is calculated based on the amount sent. Send min. 1 USDT for a 1-month demo.
+**How to pay:** Send USDT via Binance Pay to ID `863 826 81`. Payment is processed automatically within 2 minutes.
+
+- Minimum deposit: **1 USDT** (grants 1-month demo for free)
+- You can send any amount — license duration is calculated based on the amount sent
+- **50% discount** on 6-month and above payments (annual prices in table reflect this)
 :::
 
 ---
