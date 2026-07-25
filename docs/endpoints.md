@@ -342,6 +342,12 @@ Backtests run asynchronously with parallel workers. Flow: `run` → `status` (po
 | `max_loss_pct` | number | No | 50 | Max stop loss % |
 | `signal_filter_mode` | string | No | `"clamp"` | `"clamp"` (adjust to limits) or `"reject"` (skip signal) |
 
+**Notes:**
+- **Spread** is automatically determined by coin volume tier: High volume (BTC, ETH, SOL...) = 0%, Mid volume = 0.1%, Low volume = 0.2%. Not user-configurable.
+- **signal_filter_mode = "clamp"** (default): If strategy TP exceeds `max_profit_pct`, it's clamped to max. If SL exceeds `max_loss_pct`, clamped to max. Signals below `min_profit_pct` are always skipped.
+- **signal_filter_mode = "reject"**: Signals that exceed any min/max limit are completely skipped.
+- **min/max profit/loss** values are passed to the strategy function as ratio parameters (`min_profit_ratio`, `max_profit_ratio`, `max_loss_ratio`, `min_loss_ratio`) for TP/SL price calculation.
+
 **Response:**
 ```json
 {"action": "run", "mode": "async_chunked", "job_id": "1784936800_6a2326", "cost_credits": 0.05, "remaining_credits": 7.30, "chunks": 1, "status": "dispatched", "poll_actions": {"status": "?action=status&job_id=1784936800_6a2326", "result": "?action=result&job_id=1784936800_6a2326"}}
