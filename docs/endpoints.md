@@ -14,7 +14,7 @@ X-API-Secret: bf_sec_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 Content-Type: application/json
 ```
 
-Generate API keys from the mobile app (Settings → API Keys) or via `api_key_generate`.
+Generate API keys from the Telegram bot, web dashboard, or mobile app.
 
 ---
 
@@ -38,7 +38,7 @@ Generate API keys from the mobile app (Settings → API Keys) or via `api_key_ge
 | investor | 100 USDT | 600 USDT | 10 | 200 | 25 |
 
 :::{note}
-**How to pay:** Send USDT via Binance Pay to ID `863 826 81`. Payment is processed automatically within 2 minutes.
+**How to pay:** Send USDT via Binance Pay to ID `863 826 81`. 0% commission. Payment is processed automatically within 2 minutes.
 
 - Minimum deposit: **1 USDT** (grants 1-month demo for free)
 - You can send any amount — license duration is calculated based on the amount sent
