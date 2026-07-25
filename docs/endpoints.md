@@ -400,7 +400,7 @@ Failed jobs are automatically refunded.
 | `coins` | string[] | Yes |
 | `timeframe` | string | Yes |
 
-Each coin runs as a separate chunk. Required for `marketplace_publish` with `signal_mode=full`.
+Each coin runs as a separate chunk. Required for `marketplace_publish` with `signal_mode=signal_orders`.
 
 **Example body:**
 ```json
@@ -519,7 +519,7 @@ Status values: `running`, `completed`, `failed`
 
 **Response:**
 ```json
-{"ok": true, "data": {"signals": [{"position_key": "emacross#BTC#1784850000", "coin": "BTC", "strategy_name": "emacross", "owner": "MTHG7A", "side": "LONG", "signal_mode": "full", "entry_price": "67234.50", "limit_price": "69500.00", "stop_price": "65800.00", "source": "user", "created_at": 1784850000}], "count": 1}}
+{"ok": true, "data": {"signals": [{"position_key": "emacross#BTC#1784850000", "coin": "BTC", "strategy_name": "emacross", "owner": "MTHG7A", "side": "LONG", "signal_mode": "signal_orders", "entry_price": "67234.50", "limit_price": "69500.00", "stop_price": "65800.00", "source": "user", "created_at": 1784850000}], "count": 1}}
 ```
 
 ### Signal History
@@ -541,7 +541,7 @@ Status values: `running`, `completed`, `failed`
 
 **Response:**
 ```json
-{"ok": true, "data": {"signals": [{"closed_key": "...", "coin": "BTC", "strategy_name": "emacross", "side": "LONG", "signal_mode": "full", "entry_price": "67234.50", "limit_price": "69500.00", "stop_price": "65800.00", "exit_price": "69500.00", "result": "GAIN", "source": "user", "created_at": 1784850000, "closed_at": 1784950000}], "last_evaluated_key": "base64..."}}
+{"ok": true, "data": {"signals": [{"closed_key": "...", "coin": "BTC", "strategy_name": "emacross", "side": "LONG", "signal_mode": "signal_orders", "entry_price": "67234.50", "limit_price": "69500.00", "stop_price": "65800.00", "exit_price": "69500.00", "result": "GAIN", "source": "user", "created_at": 1784850000, "closed_at": 1784950000}], "last_evaluated_key": "base64..."}}
 ```
 
 ---
@@ -554,7 +554,7 @@ All automated trading endpoints return the same structure with `bot_settings`, `
 
 `POST /user?request_type=automated_trading_status`
 
-No body params. Returns full bot settings + available coins.
+No body params.
 
 **Response:**
 ```json
@@ -563,12 +563,11 @@ No body params. Returns full bot settings + available coins.
   "limits": {"strategies": 3, "coins": 10},
   "counts": {"total_strategies": 2, "user_strategies": 1, "system_strategies": 1},
   "catalog": [{"key": "emacross", "name": "emacross", "source": "user", "coins": []}],
-  "sync": {"bindings_created": 0, "bindings_removed": 0},
-  "available_coins": ["BTC", "ETH", "SOL", "XRP", "ADA", "DOGE", "AVAX"]
+  "sync": {"bindings_created": 0, "bindings_removed": 0}
 }
 ```
 
-### Update Settings
+### Update Automated Trading Settings
 
 `POST /user?request_type=automated_trading_update`
 
@@ -720,7 +719,7 @@ No body params. Returns full bot settings + available coins.
 |-------|------|----------|-------------|
 | `filters.market_type` | string | No | `"spot"` or `"futures"` |
 | `filters.timeframe` | string | No | e.g. `"4h"` |
-| `filters.signal_mode` | string | No | `"full"` or `"signal_only"` |
+| `filters.signal_mode` | string | No | `"signal_orders"` or `"signal_only"` |
 | `filters.min_win_rate` | number | No | Min win rate % |
 | `filters.coins` | string[] | No | Filter by listed coins |
 | `page_size` | number | No | Default 20, max 50 |
@@ -733,7 +732,7 @@ No body params. Returns full bot settings + available coins.
 
 **Response:**
 ```json
-{"ok": true, "data": {"listings": [{"listing_id": "lst_abc123", "strategy_name": "emacross", "owner": "MT***A", "market_type": "spot", "timeframe": "4h", "signal_mode": "full", "listed_coins": ["BTC", "ETH"], "credits_per_signal": 0.5, "total_pnl_pct": 12.5, "win_rate_pct": 68.0, "subscriber_count": 5, "total_signals_delivered": 42}], "last_evaluated_key": "base64..."}}
+{"ok": true, "data": {"listings": [{"listing_id": "lst_abc123", "strategy_name": "emacross", "owner": "MT***A", "market_type": "spot", "timeframe": "4h", "signal_mode": "signal_orders", "listed_coins": ["BTC", "ETH"], "credits_per_signal": 0.5, "total_pnl_pct": 12.5, "win_rate_pct": 68.0, "subscriber_count": 5, "total_signals_delivered": 42}], "last_evaluated_key": "base64..."}}
 ```
 
 ### Listing Detail
@@ -756,7 +755,7 @@ No body params. Returns full bot settings + available coins.
     "market_type": "spot",
     "timeframe": "4h",
     "leverage": 1,
-    "signal_mode": "full",
+    "signal_mode": "signal_orders",
     "listed_coins": ["BTC", "ETH"],
     "credits_per_signal": 0.5,
     "total_pnl_pct": 12.5,
@@ -816,7 +815,7 @@ No body params.
 
 **Response:**
 ```json
-{"ok": true, "data": {"listings": [{"listing_id": "lst_abc123", "strategy_name": "emacross", "status": "active", "signal_mode": "full", "market_type": "spot", "timeframe": "4h", "listed_coins": ["BTC"], "credits_per_signal": 0.5, "subscriber_count": 5, "total_signals_delivered": 42, "total_credits_earned": 21.0, "total_pnl_pct": 12.5, "win_rate_pct": 68.0, "created_at": 1784000000}]}}
+{"ok": true, "data": {"listings": [{"listing_id": "lst_abc123", "strategy_name": "emacross", "status": "active", "signal_mode": "signal_orders", "market_type": "spot", "timeframe": "4h", "listed_coins": ["BTC"], "credits_per_signal": 0.5, "subscriber_count": 5, "total_signals_delivered": 42, "total_credits_earned": 21.0, "total_pnl_pct": 12.5, "win_rate_pct": 68.0, "created_at": 1784000000}]}}
 ```
 
 ### My Subscriptions
@@ -839,19 +838,19 @@ No body params.
 | `strategy_key` | string | Yes | Lowercase alphanumeric |
 | `description` | string | No | Max 500 chars, no HTML |
 | `credits_per_signal` | number | Yes | 0.01 - 100.0 |
-| `signal_mode` | string | Yes | `"full"` or `"signal_only"` |
+| `signal_mode` | string | Yes | `"signal_orders"` or `"signal_only"` |
 | `requested_coins` | string[] | Yes | Coins to list |
 
-**Requirements for `signal_mode=full`:** Must have a successful `full_range` backtest. Only coins with **positive PnL** and **≥10 trades** are listed. Others are rejected.
+**Requirements for `signal_mode=signal_orders`:** Must have a successful `full_range` backtest. Only coins with **positive PnL** and **≥10 trades** are listed. Others are rejected.
 
 **Example body:**
 ```json
-{"strategy_key": "emacross", "description": "EMA crossover for BTC", "credits_per_signal": 0.5, "signal_mode": "full", "requested_coins": ["BTC", "ETH", "SOL"]}
+{"strategy_key": "emacross", "description": "EMA crossover for BTC", "credits_per_signal": 0.5, "signal_mode": "signal_orders", "requested_coins": ["BTC", "ETH", "SOL"]}
 ```
 
 **Response:**
 ```json
-{"ok": true, "data": {"listing_id": "lst_abc123", "status": "active", "listed_coins": ["BTC", "ETH"], "rejected_coins": {"SOL": "negative_pnl", "DOGE": "insufficient_trades"}, "credits_per_signal": 0.5, "signal_mode": "full", "backtest_summary": {"BTC": {"pnl_pct": 12.5, "win_rate": 68.0, "trades": 42}}}}
+{"ok": true, "data": {"listing_id": "lst_abc123", "status": "active", "listed_coins": ["BTC", "ETH"], "rejected_coins": {"SOL": "negative_pnl", "DOGE": "insufficient_trades"}, "credits_per_signal": 0.5, "signal_mode": "signal_orders", "backtest_summary": {"BTC": {"pnl_pct": 12.5, "win_rate": 68.0, "trades": 42}}}}
 ```
 
 **Errors:** 400 no full_range backtest found, 400 no profitable coins.
