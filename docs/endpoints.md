@@ -31,7 +31,7 @@ Generate API keys from the mobile app (Settings → API Keys) or via `api_key_ge
 
 | Plan | Monthly | Annual | Max Strategies | Max Coins/Strategy | Credits/month |
 |------|---------|--------|---------------|-------------------|---------------|
-| free | - | - | 1 | 5 | 0 |
+| free | - | - | - | - | 0 |
 | starter | 10 USDT | 60 USDT | 1 | 5 | 2 |
 | plus | 20 USDT | 120 USDT | 2 | 15 | 5 |
 | pro | 50 USDT | 300 USDT | 5 | 30 | 10 |
