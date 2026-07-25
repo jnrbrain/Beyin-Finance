@@ -192,7 +192,9 @@ Updated daily by BinancePrecisionLister scheduler.
 | `tp_condition` | string | Yes* | Take profit (*required for signal_orders) |
 | `sl_condition` | string | Yes* | Stop loss (*required for signal_orders) |
 
-Strategy is always created as **private**. Use `strategy_visibility` to make it public after successful backtest.
+:::{note}
+Strategies are always created as private. Use `strategy_visibility` to make public after a successful full_range backtest.
+:::
 
 **Cost:** 1.0 ⚡ total (0.05 upfront + 0.95 on success)
 
@@ -219,7 +221,9 @@ Strategy is always created as **private**. Use `strategy_visibility` to make it 
 | `tp_condition` | string | No | New take profit |
 | `sl_condition` | string | No | New stop loss |
 
-Bumps version, triggers AI regeneration. **Cancels all marketplace copiers/subscriptions.**
+:::{warning}
+Bumps version, triggers AI regeneration. Cancels all marketplace copiers/subscriptions.
+:::
 
 **Example body:**
 ```json
@@ -243,7 +247,9 @@ Bumps version, triggers AI regeneration. **Cancels all marketplace copiers/subsc
 | `timeframe` | string | Yes* | (*required for public) e.g. `"4h"` |
 | `coins` | string[] | Yes* | (*required for public) coins to list |
 
-**Requirements for public:** Must have a successful `full_range` backtest. Only coins with **total_return > 0%** are eligible.
+:::{warning}
+Requirements for public: Must have a successful `full_range` backtest. Only coins with **total_return > 0%** are eligible.
+:::
 
 **Example body (make public):**
 ```json
@@ -291,7 +297,9 @@ Bumps version, triggers AI regeneration. **Cancels all marketplace copiers/subsc
 | `strategy_name` | string | Yes |
 | `target_version` | number | Yes |
 
-⚠️ **Rollback sets visibility to private, resets credits_per_signal to 0, and cancels all marketplace subscriptions.**
+:::{danger}
+Rollback sets visibility to private, resets credits_per_signal to 0, and cancels all marketplace subscriptions.
+:::
 
 **Example body:**
 ```json
@@ -313,7 +321,9 @@ Bumps version, triggers AI regeneration. **Cancels all marketplace copiers/subsc
 - **Specified Range** (`action=run`): Test a strategy on a specific date range for a single coin.
 - **Full Range** (`action=full_range`): Test a strategy on all available data for multiple coins. Required for marketplace publishing.
 
+:::{note}
 Failed jobs are automatically refunded.
+:::
 
 ### Estimate Cost
 
@@ -868,7 +878,9 @@ No body params.
 | `signal_mode` | string | Yes | `"signal_orders"` or `"signal_only"` |
 | `requested_coins` | string[] | Yes | Coins to list |
 
-**Requirements for `signal_mode=signal_orders`:** Must have a successful `full_range` backtest. Only coins with **positive PnL** and **≥10 trades** are listed. Others are rejected.
+:::{warning}
+Requirements for `signal_mode=signal_orders`: Must have a successful `full_range` backtest. Only coins with positive PnL and ≥10 trades are listed. Others are rejected.
+:::
 
 **Example body:**
 ```json
@@ -892,7 +904,9 @@ No body params.
 | `credits_per_signal` | number | No | 0.01 - 100.0 |
 | `description` | string | No | Max 500 chars |
 
-⚠️ **Price change cancels ALL active subscriptions** and removes bindings.
+:::{danger}
+Price change cancels ALL active subscriptions and removes bindings.
+:::
 
 **Example body:**
 ```json
@@ -912,7 +926,9 @@ No body params.
 |-------|------|----------|
 | `listing_id` | string | Yes |
 
+:::{warning}
 Cancels all subscriptions, removes bindings, sets status to "removed".
+:::
 
 **Response:**
 ```json
@@ -929,7 +945,9 @@ Cancels all subscriptions, removes bindings, sets status to "removed".
 | `rating` | number | Yes | 1-5 |
 | `comment` | string | No | Max 500 chars |
 
+:::{note}
 Must have (or had) a subscription to review. One review per user per listing. Cannot review own listing.
+:::
 
 **Example body:**
 ```json
