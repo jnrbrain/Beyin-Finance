@@ -6,7 +6,24 @@
 
 ## Authentication
 
-All requests require API key headers:
+The API supports multiple authentication modes. Use the mode appropriate to the
+client; do not send more credentials than the selected mode requires.
+
+| Client | Authentication |
+|--------|----------------|
+| Mobile/Web first-party client | `Authorization: Bearer <JWT>` |
+| Developer/integration client | `X-API-Key` + `X-API-Secret` |
+| Legacy first-party client | Beyin ID/password contract, where still supported |
+| Public Trading Data routes | No authentication unless the route says otherwise |
+
+**JWT example:**
+
+```
+Authorization: Bearer eyJ...
+Content-Type: application/json
+```
+
+**Developer API-key example:**
 
 ```
 X-API-Key: bf_key_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
@@ -15,6 +32,16 @@ Content-Type: application/json
 ```
 
 Generate API keys from the Telegram bot, web dashboard, or mobile app.
+
+The Backtest endpoint accepts JWT and retains the legacy password/API-key modes
+for backward compatibility. A missing or invalid credential returns HTTP 401.
+
+:::{warning}
+The contracts added for the mobile client in this document are implemented in the
+repository but remain **deployment pending** until the corresponding Lambda/API
+Gateway changes are released to AWS. Clients must not assume a local contract is
+available in production before the deployment checklist is completed.
+:::
 
 ---
 
@@ -153,6 +180,67 @@ Requires Binance API keys linked. No body params.
 }
 ```
 
+### Get Order History
+
+`POST /user?request_type=order_history`
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `status` | string | No | `"active"` (default) returns open/entered signals; `"closed"` returns closed orders |
+
+Returns at most 100 records. Internal fields and stored exchange/credential
+payloads are removed from the response.
+
+**Response:**
+```json
+{
+  "ok": true,
+  "data": {
+    "orders": [
+      {
+        "strategy_name": "emacross",
+        "coin": "BTC",
+        "exchange_order_status": "NEW",
+        "execution_mode": "real_trade"
+      }
+    ],
+    "count": 1,
+    "status": "active"
+  }
+}
+```
+
+### Preview Binance OCO Order
+
+`POST /user?request_type=binance_order_preview`
+
+Uses the same request fields as `binance_order`, but does **not** place an
+exchange order. The server applies Binance price/quantity precision, validates
+TP/SL direction and checks the current minimum-notional rule before returning
+the irreversible-operation summary.
+
+**Response:**
+```json
+{
+  "ok": true,
+  "data": {
+    "symbol": "BTCUSDT",
+    "position_side": "BUY",
+    "order_side": "SELL",
+    "quantity": "0.001",
+    "take_profit_price": "67000.00",
+    "stop_loss_price": "63000.00",
+    "price_precision": 2,
+    "quantity_precision": 3,
+    "minimum_notional": 10,
+    "irreversible": true
+  }
+}
+```
+
+The mobile client must obtain a successful preview and display an explicit
+confirmation before calling `binance_order`.
+
 ### Place Binance OCO Order
 
 `POST /user?request_type=binance_order`
@@ -244,6 +332,35 @@ No body params. Returns last 100 notifications sorted newest first.
   }
 }
 ```
+
+### Mark Notifications Read
+
+`POST /user?request_type=notifications_mark_read`
+
+Mark one notification:
+
+```json
+{"notification_id": "notification_1784900000"}
+```
+
+**Response:**
+```json
+{"ok": true, "data": {"notification_id": "notification_1784900000", "read": true}}
+```
+
+Mark every unread notification:
+
+```json
+{"all": true}
+```
+
+**Response:**
+```json
+{"ok": true, "data": {"marked_read": 4}}
+```
+
+Exactly one of `notification_id` or `all=true` is required. Unknown notification
+IDs return 404.
 
 ### Delete Account
 
@@ -360,6 +477,43 @@ Strategies are always created as private. Use `strategy_visibility` to make publ
 
 **Errors:** 400 name too short (min 4), 400 invalid characters, 400 must contain letter, 402 insufficient credits, 409 name taken.
 
+### Get Strategy Detail
+
+`POST /user?request_type=strategy_detail`
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `strategy_name` | string | Yes | Strategy owned by the authenticated user |
+
+Only safe editable/display fields are returned. Strategy source code, owner
+credentials and internal storage metadata are not exposed.
+
+**Response:**
+```json
+{
+  "ok": true,
+  "data": {
+    "strategy_name": "emacross",
+    "status": "active",
+    "version": 3,
+    "market_type": "spot",
+    "signal_mode": "signal_orders",
+    "timeframe": "4h",
+    "entry_condition": "EMA 12 crosses above EMA 26",
+    "tp_condition": "Price reaches +5%",
+    "sl_condition": "Price drops -3%",
+    "visibility": "private",
+    "credits_per_signal": 0,
+    "public_coins": [],
+    "candle_count": 32,
+    "created_at": 1784000000,
+    "updated_at": 1784900000
+  }
+}
+```
+
+**Errors:** 400 missing strategy name, 403 not owner, 404 not found.
+
 ### Edit Strategy
 
 `POST /user?request_type=strategy_edit`
@@ -460,6 +614,39 @@ Rollback sets visibility to private, resets credits_per_signal to 0, and cancels
 ```json
 {"ok": true, "data": {"strategy_name": "emacross", "new_version": 4, "rolled_back_to": 2, "visibility": "private", "credits_per_signal": 0, "marketplace_subscriptions_cancelled": 3}}
 ```
+
+### Delete Strategy
+
+`POST /user?request_type=strategy_delete`
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `strategy_name` | string | Yes | Strategy owned by the authenticated user |
+| `confirmation` | string | Yes | Must exactly equal `strategy_name` |
+
+:::{danger}
+This is destructive. The client must require the user to type the exact strategy
+name. A strategy with an active marketplace listing cannot be deleted; unpublish
+it first.
+:::
+
+The operation verifies ownership and marketplace state, then atomically removes
+the user-visible strategy registry/binding state. Immutable strategy versions
+and related backtest objects are subsequently cleaned up. If marketplace state
+cannot be verified, deletion fails closed and no user-visible data is removed.
+
+**Response:**
+```json
+{"ok": true, "data": {"strategy_name": "emacross", "deleted": true, "deleted_objects": 8}}
+```
+
+**Errors:**
+
+- 400: missing name or confirmation mismatch
+- 403: authenticated user is not the owner
+- 404: strategy not found
+- 409: active marketplace listing must be unpublished first
+- 503: marketplace state could not be verified; nothing was deleted
 
 ---
 
@@ -616,19 +803,46 @@ Status values: `running`, `completed`, `failed`
 }
 ```
 
+### Refund Failed Backtest
+
+`POST /backtest?action=result_refund`
+
+| Field | Type | Required |
+|-------|------|----------|
+| `job_id` | string | Yes |
+
+Only a job whose persisted progress state is `failed` can be refunded. Refund
+state is persisted so a repeated request returns the existing result rather than
+issuing a second credit.
+
+**First successful response:**
+```json
+{"action": "result_refund", "job_id": "1784936800_6a2326", "refunded_credits": 0.05, "status": "refunded"}
+```
+
+**Repeated response:**
+```json
+{"action": "result_refund", "job_id": "1784936800_6a2326", "refunded_credits": 0.05, "status": "refunded", "already_refunded": true}
+```
+
+**Errors:** 400 job is not failed, 404 job/progress/manifest not found.
+
 ### Delete Backtest
 
 `POST /backtest?action=delete_backtest`
 
 | Field | Type | Required |
 |-------|------|----------|
-| `strategy_name` | string | Yes |
-| `backtest_key` | string | Yes |
+| `job_id` | string | Conditional | Preferred for async jobs; deletes the job prefix and removes it from the user index |
+| `strategy_name` | string | Conditional | Required with `backtest_key` for the legacy stored-result form |
+| `backtest_key` | string | Conditional | Required with `strategy_name` when `job_id` is not supplied |
 
 **Response:**
 ```json
-{"action": "delete_backtest", "success": true, "strategy_name": "emacross", "backtest_key": "1784936800_6a2326"}
+{"action": "delete_backtest", "success": true, "job_id": "1784936800_6a2326", "deleted_objects": 6}
 ```
+
+The legacy `{strategy_name, backtest_key}` request remains backward compatible.
 
 ### Backtest History
 
@@ -1128,6 +1342,43 @@ Must have (or had) a subscription to review. One review per user per listing. Ca
 ## Trading Data (Public)
 
 Page 0 is public. Page > 0 requires valid license.
+
+### Market Ticker
+
+`GET /tradingdata?request_type=market_ticker&market=spot&page=0&limit=50`
+
+Returns Binance USDT-pair 24-hour ticker data, sorted with requested favorites
+first and then by descending quote volume.
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `market` | string | No | `"spot"` (default) or `"futures"` |
+| `page` | number | No | Zero-based page, default 0 |
+| `limit` | number | No | Default 50, maximum 100 |
+| `query` | string | No | Case-insensitive symbol substring, normalized to uppercase |
+| `favorites` | string | No | Comma-separated symbols, e.g. `BTCUSDT,ETHUSDT` |
+
+**Response:**
+```json
+{
+  "items": [
+    {
+      "symbol": "BTCUSDT",
+      "last_price": "67234.50",
+      "change_percent_24h": "2.14",
+      "quote_volume_24h": "1845234567.00",
+      "market_type": "spot",
+      "favorite": true
+    }
+  ],
+  "page": 0,
+  "count": 1,
+  "total": 285,
+  "last_page": false
+}
+```
+
+Binance upstream failures return HTTP 502. No demo prices are substituted.
 
 ### Trend Signals
 
