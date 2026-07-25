@@ -340,6 +340,7 @@ Backtests run asynchronously with parallel workers. Flow: `run` → `status` (po
 | `max_profit_pct` | number | No | 30 | Max profit target % |
 | `min_loss_pct` | number | No | 0.1 | Min stop loss % |
 | `max_loss_pct` | number | No | 50 | Max stop loss % |
+| `signal_filter_mode` | string | No | `"clamp"` | `"clamp"` (adjust to limits) or `"reject"` (skip signal) |
 
 **Response:**
 ```json
