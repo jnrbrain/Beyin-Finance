@@ -431,9 +431,16 @@ Status values: `running`, `completed`, `failed`
 
 `POST /user?request_type=backtest_history`
 
-| Field | Type | Required |
-|-------|------|----------|
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
 | `strategy_name` | string | No | Filter by strategy |
+| `coin` | string | No | Filter by coin (e.g. `"BTC"`) |
+| `timeframe` | string | No | Filter by timeframe (e.g. `"4h"`) |
+
+**Example body:**
+```json
+{"strategy_name": "emacross", "coin": "BTC", "timeframe": "4h"}
+```
 
 **Response:**
 ```json
