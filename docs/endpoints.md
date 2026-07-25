@@ -29,9 +29,9 @@ Generate API keys from the mobile app (Settings → API Keys) or via `api_key_ge
 
 ## Plan Limits
 
-| Plan | Monthly | Annual | Max Strategies | Max Coins/Strategy | Credits/month |
-|------|---------|--------|---------------|-------------------|---------------|
-| free | - | - | - | - | 0 |
+| Plan | Monthly | Annual (-50%) | Max Active Strategies | Max Coins/Strategy | Credits/month |
+|------|---------|---------------|----------------------|-------------------|---------------|
+| free | - | - | - | - | - |
 | starter | 10 USDT | 60 USDT | 1 | 5 | 2 |
 | plus | 20 USDT | 120 USDT | 2 | 15 | 5 |
 | pro | 50 USDT | 300 USDT | 5 | 30 | 10 |
@@ -666,7 +666,7 @@ No body params.
 **Errors:**
 - 404: `"Strategy not found"` — strategy_key doesn't exist in your catalog
 - 409: `"Strategy already configured"` — already added
-- 400: `"Max N user strategies allowed for your plan"` — plan limit reached
+- 400: `"Max N active strategies allowed for your plan"` — plan limit reached
 
 ### Remove Strategy
 
