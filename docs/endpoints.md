@@ -27,6 +27,16 @@ Generate API keys from the mobile app (Settings → API Keys) or via `api_key_ge
 | pro | 120 |
 | investor | 240 |
 
+## Plan Limits
+
+| Plan | Max Strategies | Max Coins per Strategy | Credits/month |
+|------|---------------|----------------------|---------------|
+| free | 1 | 5 | 0 |
+| starter | 1 | 5 | 2 |
+| plus | 2 | 15 | 5 |
+| pro | 5 | 30 | 10 |
+| investor | 10 | 200 | 25 |
+
 ---
 
 ## Account
