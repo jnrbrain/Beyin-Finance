@@ -276,6 +276,8 @@ Bumps version, triggers AI regeneration. **Cancels all marketplace copiers/subsc
 | `strategy_name` | string | Yes |
 | `target_version` | number | Yes |
 
+⚠️ **Rollback sets visibility to private, resets credits_per_signal to 0, and cancels all marketplace subscriptions.**
+
 **Example body:**
 ```json
 {"strategy_name": "emacross", "target_version": 2}
@@ -283,7 +285,7 @@ Bumps version, triggers AI regeneration. **Cancels all marketplace copiers/subsc
 
 **Response:**
 ```json
-{"ok": true, "data": {"strategy_name": "emacross", "new_version": 4, "rolled_back_to": 2}}
+{"ok": true, "data": {"strategy_name": "emacross", "new_version": 4, "rolled_back_to": 2, "visibility": "private", "credits_per_signal": 0, "marketplace_subscriptions_cancelled": 3}}
 ```
 
 ---
@@ -292,9 +294,11 @@ Bumps version, triggers AI regeneration. **Cancels all marketplace copiers/subsc
 
 **Endpoint:** `POST /backtest?action=<action>`
 
-Backtests run asynchronously with parallel workers. Flow: `run` → `status` (poll) → `result`.
+⚠️ **Two backtest modes available:**
+- **Specified Range** (`action=run`): Test a strategy on a specific date range for a single coin.
+- **Full Range** (`action=full_range`): Test a strategy on all available data for multiple coins. Required for marketplace publishing.
 
-**Cost model:** Total = AWS cost × 5. Deducted as 1/5 upfront + 4/5 on success. Failed jobs are auto-refunded.
+Failed jobs are automatically refunded.
 
 ### Estimate Cost
 
@@ -311,7 +315,7 @@ Backtests run asynchronously with parallel workers. Flow: `run` → `status` (po
 {"action": "estimate", "total_candles": 6527547, "estimated_cost_credits": 0.35, "estimated_duration_seconds": 31, "chunks": 14, "current_credits": 7.35, "can_afford": true}
 ```
 
-### Get Data Info
+### Get Coin Backtest Info
 
 `POST /backtest?action=info`
 
@@ -336,10 +340,10 @@ Backtests run asynchronously with parallel workers. Flow: `run` → `status` (po
 
 **Response:**
 ```json
-{"action": "list_timeframes", "coin": "BTC", "timeframes": ["1m", "5m", "15m", "1h", "4h", "1d"]}
+{"action": "list_timeframes", "coin": "BTC", "timeframes": ["1m", "3m", "5m", "15m", "30m", "1h", "2h", "4h", "1d"]}
 ```
 
-### Run Backtest
+### Run Specified Range Backtest
 
 `POST /backtest?action=run`
 
@@ -479,7 +483,24 @@ Status values: `running`, `completed`, `failed`
 
 `POST /user?request_type=active_signals`
 
-No body params.
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `strategy_name` | string or string[] | No | Filter by strategy. Single string or array. Omit for all signals. |
+
+**Example body (single strategy):**
+```json
+{"strategy_name": "emacross"}
+```
+
+**Example body (multiple strategies):**
+```json
+{"strategy_name": ["emacross", "rsibounce"]}
+```
+
+**Example body (all signals):**
+```json
+{}
+```
 
 **Response:**
 ```json
