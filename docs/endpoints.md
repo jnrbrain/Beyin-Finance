@@ -139,6 +139,21 @@ No body params. Returns last 100 notifications sorted newest first.
 }
 ```
 
+### Delete Account
+
+`POST /user?request_type=delete`
+
+No body params. Schedules account for deletion after 30 days.
+
+:::{warning}
+Account is soft-deleted: disabled for 30 days, then permanently removed. Logging in within 30 days automatically restores the account. Credits and strategies are preserved during the grace period.
+:::
+
+**Response:**
+```json
+{"ok": true, "data": {"message": "Account scheduled for deletion", "deletion_scheduled_at": 1787500000, "recovery_until": 1787500000, "note": "Log in within 30 days to cancel deletion and restore your account."}}
+```
+
 ---
 
 ## Economic News & Calendar
@@ -240,7 +255,7 @@ Strategies are always created as private. Use `strategy_visibility` to make publ
 | `sl_condition` | string | No | New stop loss |
 
 :::{warning}
-Bumps version, triggers AI regeneration. Cancels all marketplace copiers/subscriptions.
+Editing a strategy creates a new version and triggers AI code regeneration. All marketplace subscribers of this strategy will be automatically unsubscribed.
 :::
 
 **Example body:**
