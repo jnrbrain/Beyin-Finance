@@ -554,6 +554,10 @@ Status values: `running`, `completed`, `failed`
 
 ## Automated Trading
 
+:::{danger} Bu özellik şu anda kullanım dışıdır.
+SPK (Sermaye Piyasası Kurulu) lisansı alındığında entegre edilecek ve kullanıma açılacaktır. Aşağıdaki endpoint'ler şu anda devre dışıdır.
+:::
+
 All automated trading endpoints return the same structure with `bot_settings`, `limits`, `counts`, `catalog`, and `sync` fields.
 
 ### Get Status
