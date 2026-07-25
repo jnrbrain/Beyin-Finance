@@ -20,22 +20,55 @@ Generate API keys from the Telegram bot, web dashboard, or mobile app.
 
 ## Rate Limits
 
-| Plan | Requests/min |
-|------|-------------|
-| starter | 30 |
-| plus | 60 |
-| pro | 120 |
-| investor | 240 |
+| Plan | Requests/min (API Key) | Requests/min (App/Web) |
+|------|----------------------|----------------------|
+| free | 30 | 60 |
+| starter | 30 | 60 |
+| plus | 60 | 120 |
+| pro | 120 | 240 |
+| investor | 240 | 480 |
+
+App/Web requests (JWT or beyin_password auth) get 2× the limit.
+
+### Rate Limit Headers
+
+Every response includes rate limit information:
+
+```
+X-RateLimit-Limit: 120        # Your per-minute limit
+X-RateLimit-Remaining: 87     # Requests remaining in current window
+X-RateLimit-Reset: 1784990340 # Unix timestamp when the window resets
+```
+
+When rate limited (HTTP 429):
+```
+Retry-After: 23               # Seconds until reset
+```
+
+### Implementation Details
+
+- Rate limiting is **per user, per minute** (not per IP)
+- Counters are stored in DynamoDB (atomic increment) — consistent across all Lambda instances
+- Counters auto-expire 2 minutes after the window resets
+- Telegram bot requests are **not rate limited**
+- Internal endpoints (`position_tracker`) are **not rate limited**
+
+### Client Best Practices
+
+- Read `X-RateLimit-Remaining` from every response
+- If `Remaining` < 5, slow down or queue requests
+- On 429, wait `Retry-After` seconds before retrying
+- Cache responses when possible (e.g. `account_info`, `available_coins`)
 
 ## Plan Limits
 
-| Plan | Monthly | Annual (-50%) | Max Active Strategies | Max Coins/Strategy | Credits/month |
-|------|---------|---------------|----------------------|-------------------|---------------|
-| free | - | - | - | - | - |
-| starter | 10 USDT | 60 USDT | 1 | 5 | 2 |
-| plus | 20 USDT | 120 USDT | 2 | 15 | 5 |
-| pro | 50 USDT | 300 USDT | 5 | 30 | 10 |
-| investor | 100 USDT | 600 USDT | 10 | 200 | 25 |
+| Plan | Monthly | Annual (-50%) | Max Active Strategies | Max Coins/Strategy |
+|------|---------|---------------|----------------------|-------------------|
+| free | - | - | - | - |
+| starter | 10 USDT | 60 USDT | 1 | 5 |
+| plus | 20 USDT | 120 USDT | 2 | 15 |
+| pro | 50 USDT | 300 USDT | 5 | 30 |
+| investor | 100 USDT | 600 USDT | 10 | 200 |
 
 :::{note}
 **How to pay:** Send USDT via Binance Pay to ID `863 826 81`. 0% commission. Payment is processed automatically within 2 minutes.
@@ -120,6 +153,79 @@ Requires Binance API keys linked. No body params.
 }
 ```
 
+### Place Binance OCO Order
+
+`POST /user?request_type=binance_order`
+
+Places an OCO (One-Cancels-Other) order on Binance. Combines a Take-Profit limit order and a Stop-Loss stop-limit order. When one triggers, the other is automatically cancelled.
+
+Requires Binance API keys linked.
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `symbol` | string | Yes | e.g. `"BTCUSDT"` |
+| `side` | string | Yes | `"BUY"` or `"SELL"` — your entry side (OCO exit side is inverted) |
+| `quantity` | number | Yes | Amount to sell/buy when TP or SL triggers |
+| `entry_price` | number | No | Reference entry price (for logging) |
+| `take_profit_price` | number | Yes | Take-profit limit price |
+| `stop_loss_price` | number | Yes | Stop-loss trigger price |
+| `market_type` | string | No | `"spot"` (default) or `"futures"` |
+| `signal_order_id` | string | No | Links to an existing signal record |
+| `signal_position_key` | string | No | If provided, updates the opened signal with OCO info |
+
+:::{note}
+- Prices and quantities are automatically formatted to Binance precision requirements (from `binanceExchangeInfo.json`)
+- The OCO exit side is automatically determined: if your entry `side` is `BUY` (long), exit is `SELL`
+- Order is routed through the Lightsail proxy (statik IP: Frankfurt)
+:::
+
+**Example body:**
+```json
+{
+  "symbol": "BTCUSDT",
+  "side": "BUY",
+  "quantity": 0.001,
+  "entry_price": 65000,
+  "take_profit_price": 67000,
+  "stop_loss_price": 63000,
+  "market_type": "spot",
+  "signal_position_key": "emacross#BTC#1784850000"
+}
+```
+
+**Response:**
+```json
+{
+  "ok": true,
+  "data": {
+    "order_list_id": "12345678",
+    "client_order_id": "BFOCO_MTHG7A_1784990000",
+    "symbol": "BTCUSDT",
+    "side": "SELL",
+    "quantity": "0.00100",
+    "take_profit_price": "67000.00",
+    "stop_loss_price": "63000.00",
+    "orders": [
+      {"symbol": "BTCUSDT", "orderId": 111, "type": "LIMIT_MAKER"},
+      {"symbol": "BTCUSDT", "orderId": 222, "type": "STOP_LOSS_LIMIT"}
+    ],
+    "signal_order_id": "",
+    "signal_position_key": "emacross#BTC#1784850000"
+  }
+}
+```
+
+**Errors:**
+- 400: Missing/invalid fields
+- 502: Binance rejected the order (insufficient balance, invalid price, etc.)
+
+**Close reasons (tracked by position_tracker):**
+| Reason | Description |
+|--------|-------------|
+| `TARGET` | Take-profit limit order filled |
+| `STOP` | Stop-loss triggered and filled |
+| `CANCELLED` | User manually cancelled on Binance |
+
 ### Get Notifications
 
 `POST /user?request_type=notifications_list`
@@ -156,24 +262,9 @@ Account is soft-deleted: disabled for 30 days, then permanently removed. Logging
 
 ---
 
-## Economic News & Calendar
+## Economic News
 
-### Get Available Coins
-
-`POST /user?request_type=available_coins`
-
-No body params. No auth required. Returns coins that are TRADING on Binance AND have kline data available for backtest/signals.
-
-**Response:**
-```json
-{"ok": true, "data": {"coins": ["ADA", "AVAX", "BNB", "BTC", "DOGE", "DOT", "ETH", "LINK", "SOL", "XRP"], "count": 285}}
-```
-
-Updated daily by BinancePrecisionLister scheduler.
-
----
-
-### Get Economic Data
+### Get Economic News
 
 `POST /user?request_type=economic_news`
 
@@ -181,12 +272,11 @@ Updated daily by BinancePrecisionLister scheduler.
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `type` | string | No | `"all"` (default), `"news"`, or `"calendar"` |
-| `limit` | number | No | Max items per category (default 20, max 50) |
+| `limit` | number | No | Max items (default 20, max 50) |
 
 **Example body:**
 ```json
-{"type": "news", "limit": 10}
+{"limit": 10}
 ```
 
 **Response:**
@@ -197,6 +287,33 @@ Updated daily by BinancePrecisionLister scheduler.
     "news": [
       {"id": "a3b2c1d4e5f6", "type": "news", "title": "Fed issues enforcement action", "source": "fed", "source_url": "https://...", "sentiment": "NEUTRAL", "impact": "MEDIUM", "category": "FED", "affected_coins": ["BTC"], "timestamp": 1784900000}
     ],
+    "cost_credits": 0.01
+  }
+}
+```
+
+**Errors:** 402 if insufficient credits.
+
+### Get Economic Calendar
+
+`POST /user?request_type=economic_calendar`
+
+**Cost:** 0.01 ⚡ per request
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `limit` | number | No | Max items (default 30, max 50) |
+
+**Example body:**
+```json
+{"limit": 20}
+```
+
+**Response:**
+```json
+{
+  "ok": true,
+  "data": {
     "calendar": [
       {"id": "f6e5d4c3b2a1", "type": "calendar", "title": "CPI m/m (USD)", "source": "forexfactory", "scheduled_date": "2026-07-28T12:30:00-04:00", "impact": "HIGH", "forecast": "0.2%", "previous": "0.3%", "country": "USD"}
     ],
@@ -1071,22 +1188,11 @@ Note: `klines_data` only included for licensed users.
 {"market_key": "BTCUSDT#1h", "items": [{"timestamp": 1784900000, "sentiment_score": 72, "trend": "BULLISH"}], "count": 50, "limit": 50, "has_more": true, "oldest_timestamp": 1784720000, "next_before_timestamp": 1784720000}
 ```
 
-### Platform Notifications
-
-`GET /tradingdata?request_type=platform_notifications&limit=20`
-
-| Param | Type | Required | Description |
-|-------|------|----------|-------------|
-| `limit` | number | No | Default 20, max 50 |
-
-**Response:**
-```json
-{"notifications": [{"title": "New Feature", "body": "Marketplace is now live!", "type": "announcement", "timestamp": 1784900000}], "count": 1}
-```
-
 ---
 
-## General Config
+## General Config & Platform Data
+
+### Get Platform Config
 
 `GET /`
 
@@ -1101,6 +1207,197 @@ No auth required. Returns platform config (plans, pricing, banners). Cache local
   "supported_coins": ["BTC", "ETH", "SOL"],
   "app_version": "2.0.0"
 }
+```
+
+### Get Available Coins
+
+`POST /user?request_type=available_coins`
+
+No body params. Returns coins that are TRADING on Binance AND have kline data available for backtest/signals.
+
+**Response:**
+```json
+{"ok": true, "data": {"coins": ["ADA", "AVAX", "BNB", "BTC", "DOGE", "DOT", "ETH", "LINK", "SOL", "XRP"], "count": 285}}
+```
+
+Updated daily by BinancePrecisionLister scheduler. Cache this response — it changes at most once per day.
+
+### Get Platform Notifications
+
+`GET /tradingdata?request_type=platform_notifications&limit=20`
+
+No auth required. Returns system announcements (new features, maintenance, etc.).
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `limit` | number | No | Default 20, max 50 |
+
+**Response:**
+```json
+{"notifications": [{"title": "New Feature", "body": "Marketplace is now live!", "type": "announcement", "timestamp": 1784900000}], "count": 1}
+```
+
+---
+
+## Community
+
+### Global Chat — Send Message
+
+`POST /user?request_type=community_chat_send`
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `message` | string | Yes | Max 500 characters |
+
+**Response:**
+```json
+{"ok": true, "data": {"msg_id": "1784990000_MTHG7A", "sort_key": "1784990000#1784990000_MTHG7A"}}
+```
+
+### Global Chat — History
+
+`POST /user?request_type=community_chat_history`
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `limit` | number | No | Default 50, max 100 |
+| `before_sort_key` | string | No | Pagination — get messages before this key |
+
+**Response:**
+```json
+{"ok": true, "data": {"messages": [{"beyin_id": "MTHG7A", "message": "BTC looking bullish!", "created_at": 1784990000, "sort_key": "..."}], "count": 50}}
+```
+
+### Create Post (Leaders Only)
+
+`POST /user?request_type=community_post_create`
+
+Only users with `community_role: "leader"` can create posts.
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `title` | string | No | Post title |
+| `content` | string | Yes | Max 5000 characters |
+| `image_url` | string | No | S3 URL for attached image |
+
+**Response:**
+```json
+{"ok": true, "data": {"post_id": "post_MTHG7A_1784990000"}}
+```
+
+Followers are automatically notified via FCM + Telegram.
+
+### List Posts
+
+`POST /user?request_type=community_post_list`
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `author_id` | string | No | Filter by leader. Omit for all posts. |
+| `limit` | number | No | Default 20, max 50 |
+
+**Response:**
+```json
+{"ok": true, "data": {"posts": [{"post_id": "...", "author_id": "MTHG7A", "title": "BTC Analysis", "content": "...", "image_url": "", "like_count": 12, "comment_count": 3, "created_at": 1784990000}], "count": 5}}
+```
+
+### Like Post
+
+`POST /user?request_type=community_post_like`
+
+| Field | Type | Required |
+|-------|------|----------|
+| `post_id` | string | Yes |
+
+**Response:**
+```json
+{"ok": true, "data": {"post_id": "...", "action": "liked"}}
+```
+
+**Errors:** 409 if already liked.
+
+### Comment on Post
+
+`POST /user?request_type=community_post_comment`
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `post_id` | string | Yes | |
+| `comment` | string | Yes | Max 300 characters |
+
+**Response:**
+```json
+{"ok": true, "data": {"post_id": "...", "action": "commented"}}
+```
+
+### Report Content
+
+`POST /user?request_type=community_post_report`
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `post_id` | string | Conditional | For reporting a post |
+| `type` | string | No | `"post"` (default) or `"chat"` |
+| `sort_key` | string | Conditional | For reporting a chat message |
+
+3 reports → content is automatically hidden.
+
+**Response:**
+```json
+{"ok": true, "data": {"action": "reported"}}
+```
+
+### Follow Leader
+
+`POST /user?request_type=community_follow`
+
+| Field | Type | Required |
+|-------|------|----------|
+| `leader_id` | string | Yes |
+
+**Response:**
+```json
+{"ok": true, "data": {"leader_id": "MTHG7A", "action": "followed"}}
+```
+
+### Unfollow Leader
+
+`POST /user?request_type=community_unfollow`
+
+| Field | Type | Required |
+|-------|------|----------|
+| `leader_id` | string | Yes |
+
+**Response:**
+```json
+{"ok": true, "data": {"leader_id": "MTHG7A", "action": "unfollowed"}}
+```
+
+### Apply to Become Leader
+
+`POST /user?request_type=community_leader_apply`
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `reason` | string | Yes | Why you want to be a leader (max 1000 chars) |
+| `experience` | string | Yes | Your trading/crypto experience (max 2000 chars) |
+
+**Response:**
+```json
+{"ok": true, "data": {"status": "pending", "message": "Application submitted. We will review and notify you."}}
+```
+
+**Errors:** 409 if already pending or already approved.
+
+### List Leaders
+
+`POST /user?request_type=community_leaders_list`
+
+No body params.
+
+**Response:**
+```json
+{"ok": true, "data": {"leaders": [{"beyin_id": "MTHG7A", "name": "CryptoTrader", "bio": "Full-time crypto analyst"}], "count": 3}}
 ```
 
 ---
