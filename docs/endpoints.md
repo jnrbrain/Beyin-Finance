@@ -335,7 +335,7 @@ Backtests run asynchronously with parallel workers. Flow: `run` → `status` (po
 | `commission` | number | No | 0.2 | Commission % |
 | `spread` | number | No | 0.1 | Spread % |
 | `position_pct` | number | No | 100 | Position size % |
-| `min_gap_hours` | number | No | 4 | Min hours between signals |
+| `min_gap_candles` | number | No | 4 | Min candles between signals |
 | `max_wait_days` | number | No | 30 | Max days to wait for fill |
 | `min_profit_pct` | number | No | 0.1 | Min profit target % |
 | `max_profit_pct` | number | No | 30 | Max profit target % |
