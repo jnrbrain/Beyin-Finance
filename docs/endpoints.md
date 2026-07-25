@@ -528,11 +528,17 @@ Status values: `running`, `completed`, `failed`
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `filters.coin` | string | No | Filter by coin |
-| `filters.strategy_name` | string | No | Filter by strategy |
-| `filters.owner` | string | No | Filter by owner |
+| `filters` | object | No | Filter object (see below) |
 | `page_size` | number | No | Default 20, max 50 |
 | `last_evaluated_key` | string | No | Pagination cursor (base64) |
+
+**Filter object fields:**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `coin` | string | Filter by coin |
+| `strategy_name` | string | Filter by strategy |
+| `owner` | string | Filter by signal owner |
 
 **Example body:**
 ```json
@@ -717,17 +723,23 @@ No body params.
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `filters.market_type` | string | No | `"spot"` or `"futures"` |
-| `filters.timeframe` | string | No | e.g. `"4h"` |
-| `filters.signal_mode` | string | No | `"signal_orders"` or `"signal_only"` |
-| `filters.min_win_rate` | number | No | Min win rate % |
-| `filters.coins` | string[] | No | Filter by listed coins |
-| `page_size` | number | No | Default 20, max 50 |
-| `last_evaluated_key` | string | No | Pagination cursor (base64) |
+| `filters` | object | No | Filter object (see below) |
+| `page_size` | number | No | Default 50, max 500 |
+| `last_evaluated_key` | string | No | Pagination cursor (base64) from previous response |
+
+**Filter object fields:**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `market_type` | string | `"spot"` or `"futures"` |
+| `timeframe` | string | e.g. `"4h"` |
+| `signal_mode` | string | `"signal_orders"` or `"signal_only"` |
+| `min_win_rate` | number | Min win rate % |
+| `coins` | string[] | Filter by listed coins |
 
 **Example body:**
 ```json
-{"filters": {"market_type": "spot", "min_win_rate": 55, "coins": ["BTC"]}, "page_size": 20}
+{"filters": {"market_type": "spot", "min_win_rate": 55, "coins": ["BTC"]}, "page_size": 100}
 ```
 
 **Response:**
