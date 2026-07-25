@@ -217,7 +217,7 @@ Updated daily by BinancePrecisionLister scheduler.
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `strategy_name` | string | Yes | Unique, lowercase alphanumeric (`^[a-z0-9]+$`) |
+| `strategy_name` | string | Yes | Unique, lowercase alphanumeric, min 4 chars, at least 1 letter (`^[a-z0-9]+$`) |
 | `market_type` | string | Yes | `"spot"` or `"futures"` |
 | `signal_mode` | string | Yes | `"signal_orders"` or `"signal_only"` |
 | `timeframe` | string | Yes | `1m,3m,5m,15m,30m,1h,2h,4h,1d` |
@@ -241,7 +241,7 @@ Strategies are always created as private. Use `strategy_visibility` to make publ
 {"ok": true, "data": {"strategy_name": "emacross", "version": 1, "signal_mode": "signal_orders", "status": "generating", "cost_upfront": 0.05, "cost_on_success": 0.95}}
 ```
 
-**Errors:** 402 insufficient credits, 409 name taken.
+**Errors:** 400 name too short (min 4), 400 invalid characters, 400 must contain letter, 402 insufficient credits, 409 name taken.
 
 ### Edit Strategy
 
