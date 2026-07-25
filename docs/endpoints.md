@@ -554,12 +554,14 @@ Status values: `running`, `completed`, `failed`
 
 ## Automated Trading
 
-:::{danger} SPK lisansı alana kadar Automated Trading kapalıdır.
+:::{warning} This feature is currently unavailable. It will be integrated and made available once the SPK (Capital Markets Board) license is obtained. The following endpoints are currently disabled.
 :::
 
 All automated trading endpoints return the same structure with `bot_settings`, `limits`, `counts`, `catalog`, and `sync` fields.
 
 ### Get Status
+
+> **⚠️ This endpoint is currently disabled.**
 
 `POST /user?request_type=automated_trading_status`
 
@@ -577,6 +579,8 @@ No body params.
 ```
 
 ### Update Automated Trading Settings
+
+> **⚠️ This endpoint is currently disabled.**
 
 `POST /user?request_type=automated_trading_update`
 
@@ -602,6 +606,8 @@ No body params.
 ```
 
 ### Add Strategy
+
+> **⚠️ This endpoint is currently disabled.**
 
 `POST /user?request_type=automated_strategy_add`
 
@@ -636,6 +642,8 @@ No body params.
 
 ### Remove Strategy
 
+> **⚠️ This endpoint is currently disabled.**
+
 `POST /user?request_type=automated_strategy_remove`
 
 | Field | Type | Required |
@@ -661,6 +669,8 @@ No body params.
 **Errors:** 404 strategy not configured.
 
 ### Set Strategy Coins
+
+> **⚠️ This endpoint is currently disabled.**
 
 `POST /user?request_type=automated_strategy_set_coins`
 
@@ -690,6 +700,8 @@ No body params.
 **Errors:** 400 system strategy (coins managed by server), 404 not configured.
 
 ### Toggle Strategy
+
+> **⚠️ This endpoint is currently disabled.**
 
 `POST /user?request_type=automated_strategy_toggle`
 
