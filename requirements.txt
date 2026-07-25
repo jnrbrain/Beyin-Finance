@@ -1,0 +1,6 @@
+fastapi
+uvicorn
+sphinx
+sphinx-rtd-theme
+sphinxcontrib-openapi
+sphinxcontrib-redoc
