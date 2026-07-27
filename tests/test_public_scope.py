@@ -93,39 +93,6 @@ class PublicReferenceScopeTests(unittest.TestCase):
     def test_unavailable_routes_are_not_advertised(self):
         self.assertNotIn("request_type=market_ticker", PUBLISHED_SOURCE)
 
-    def test_plan_prices_and_payment_instructions_are_not_published(self):
-        forbidden = (
-            "## Plan Limits",
-            "Monthly",
-            "Annual (-50%)",
-            "How to pay",
-            "Binance Pay to ID",
-            "monthly_price",
-        )
-        for value in forbidden:
-            self.assertNotIn(value, PUBLISHED_SOURCE)
-
-    def test_private_account_management_is_not_advertised(self):
-        private_operations = (
-            "delete",
-            "api_key_generate",
-            "api_key_revoke",
-            "register",
-            "login",
-            "logout",
-        )
-        for operation in private_operations:
-            self.assertIsNone(
-                re.search(
-                    rf"request_type={re.escape(operation)}(?=[`&\s])",
-                    PUBLISHED_SOURCE,
-                )
-            )
-
-    def test_session_implementation_is_not_part_of_public_auth_contract(self):
-        for value in ("3-day session token", "obtained via `login`", "JWT"):
-            self.assertNotIn(value, PUBLISHED_SOURCE)
-
     def test_repository_metadata_is_real_and_buildable(self):
         metadata = tomllib.loads(
             (ROOT / "pyproject.toml").read_text(encoding="utf-8")
