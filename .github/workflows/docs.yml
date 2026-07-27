@@ -1,0 +1,27 @@
+name: Documentation
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  public-reference:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+      - name: Install documentation dependencies
+        run: python -m pip install --disable-pip-version-check -r docs/requirements.txt
+      - name: Verify public documentation scope
+        run: python -m unittest discover -s tests -p "test_*.py" -v
+      - name: Build documentation with warnings as errors
+        run: python -m sphinx -E -W --keep-going -b html docs _build/html

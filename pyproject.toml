@@ -1,22 +1,18 @@
 [build-system]
-requires = ["setuptools>=61.0"]
+requires = ["setuptools>=80.9.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "beyinfinance-api"
-version = "0.1.0"
-description = "Finansal göstergeler sunan REST API"
-readme = "README.rst"
-requires-python = ">=3.9"
-license = {text = "MIT"}
+name = "beyin-finance-api-docs"
+version = "2.0.0"
+description = "Public developer API reference for Beyin Finance"
+readme = "README.md"
+requires-python = ">=3.11"
 authors = [
-  { name = "Senin Adın", email = "sen@example.com" }
+  { name = "Said Uludağ" }
 ]
-dependencies = [
-  "fastapi",
-  "uvicorn"
-]
+dependencies = []
 
 [project.urls]
-Homepage = "https://github.com/kullaniciadi/beyinfinance-api"
-Documentation = "https://beyinfinance.readthedocs.io/"
+Homepage = "https://github.com/jnrbrain/Beyin-Finance"
+Documentation = "https://beyin-finance-api.readthedocs.io/"

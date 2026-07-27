@@ -1,4 +1,4 @@
-﻿# Beyin Finance Developer API Reference
+# Beyin Finance Developer API Reference
 
 **Base URL:** `https://08rxd1g3ik.execute-api.eu-central-1.amazonaws.com/BeyinAPI`
 
@@ -6,22 +6,13 @@
 
 ## Authentication
 
-The API supports multiple authentication modes. Use the mode appropriate to the
-client; do not send more credentials than the selected mode requires.
+Use developer API credentials for authenticated integrations. Do not send
+credentials to public routes unless the endpoint explicitly requires them.
 
 | Client | Authentication |
 |--------|----------------|
-| Mobile/Web first-party client | `Authorization: Bearer <JWT>` |
 | Developer/integration client | `X-API-Key` + `X-API-Secret` |
-| Legacy first-party client | Beyin ID/password contract, where still supported |
 | Public Trading Data routes | No authentication unless the route says otherwise |
-
-**JWT example:**
-
-```
-Authorization: Bearer eyJ...
-Content-Type: application/json
-```
 
 **Developer API-key example:**
 
@@ -33,29 +24,25 @@ Content-Type: application/json
 
 Generate API keys from the Telegram bot, web dashboard, or mobile app.
 
-The Backtest endpoint accepts JWT and retains the legacy password/API-key modes
-for backward compatibility. A missing or invalid credential returns HTTP 401.
+A missing or invalid developer credential returns HTTP 401.
+Unless an endpoint is explicitly marked “No auth required,” every `/user` and
+`/backtest` operation in this reference requires the developer headers above.
 
-:::{warning}
-The contracts added for the mobile client in this document are implemented in the
-repository but remain **deployment pending** until the corresponding Lambda/API
-Gateway changes are released to AWS. Clients must not assume a local contract is
-available in production before the deployment checklist is completed.
-:::
+### Request correlation
+
+Clients may send a unique `X-Correlation-ID` header for every logical API
+request and reuse it across automatic retries. The API accepts only 8-128 characters
+from letters, numbers, `.`, `_`, `:`, and `-`; invalid values are replaced.
+User API and backtest responses echo the accepted value in
+`X-Correlation-ID`. Browser clients may read it through
+`Access-Control-Expose-Headers`.
 
 ---
 
 ## Rate Limits
 
-| Plan | Requests/min (API Key) | Requests/min (App/Web) |
-|------|----------------------|----------------------|
-| free | 30 | 60 |
-| starter | 30 | 60 |
-| plus | 60 | 120 |
-| pro | 120 | 240 |
-| investor | 240 | 480 |
-
-App/Web requests (JWT or beyin_password auth) get 2× the limit.
+Rate limits can vary by account and endpoint. Use the response headers as the
+authoritative limit for the authenticated client.
 
 ### Rate Limit Headers
 
@@ -72,40 +59,12 @@ When rate limited (HTTP 429):
 Retry-After: 23               # Seconds until reset
 ```
 
-### Implementation Details
-
-- Rate limiting is **per user, per minute** (not per IP)
-- Counters are stored in DynamoDB (atomic increment) — consistent across all Lambda instances
-- Counters auto-expire 2 minutes after the window resets
-- Telegram bot requests are **not rate limited**
-- Internal endpoints (`position_tracker`) are **not rate limited**
-
 ### Client Best Practices
 
 - Read `X-RateLimit-Remaining` from every response
 - If `Remaining` < 5, slow down or queue requests
 - On 429, wait `Retry-After` seconds before retrying
 - Cache responses when possible (e.g. `account_info`, `available_coins`)
-
-## Plan Limits
-
-| Plan | Monthly | Annual (-50%) | Max Active Strategies | Max Coins/Strategy |
-|------|---------|---------------|----------------------|-------------------|
-| free | - | - | - | - |
-| starter | 10 USDT | 60 USDT | 1 | 5 |
-| plus | 20 USDT | 120 USDT | 2 | 15 |
-| pro | 50 USDT | 300 USDT | 5 | 30 |
-| investor | 100 USDT | 600 USDT | 10 | 200 |
-
-:::{note}
-**How to pay:** Send USDT via Binance Pay to ID `863 826 81`. 0% commission. Payment is processed automatically within 2 minutes.
-
-- Minimum deposit: **1 USDT** (grants 1-month demo for free)
-- You can send any amount — license duration is calculated based on the amount sent
-- **50% discount** on 6-month and above payments (annual prices in table reflect this)
-:::
-
----
 
 ## Account
 
@@ -126,6 +85,31 @@ No body required.
     "license_expires_at": 1790000000,
     "demo_expires_at": 0,
     "active_own_strategies": 3,
+    "community_role": "leader",
+    "connections": {
+      "binance": true,
+      "telegram": false,
+      "google": true
+    },
+    "notification_settings": {
+      "app": true,
+      "announcement": true,
+      "account": true,
+      "bot": true,
+      "telegram": false,
+      "mail": false
+    },
+    "referral": {
+      "code": "BF-REF-123",
+      "commissions": [
+        {
+          "commission_id": "payment-1",
+          "amount_usdt": 1.25,
+          "status": "recorded"
+        }
+      ],
+      "total_commission_usdt": 1.25
+    },
     "strategies": {
       "emacross": {
         "name": "emacross",
@@ -139,11 +123,57 @@ No body required.
 }
 ```
 
+Connection values are booleans only. Binance API keys/secrets, Google/Telegram
+identifiers and credential ciphertext are never returned. Referral entries are
+normalized to identifier, amount and status; the raw user record is not exposed.
+
+### Get Login History
+
+`POST /user?request_type=login_history`
+
+Returns the most recent known login for each retained IP origin, newest first.
+The authentication record keeps a bounded set of origins; repeated logins from
+the same IP update that origin rather than creating duplicate events.
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `page_size` | integer | No | Default 25, min 1, max 100 |
+| `last_evaluated_key` | string | No | Opaque cursor returned by the previous page |
+
+```json
+{
+  "ok": true,
+  "data": {
+    "logins": [
+      {
+        "login_id": "login#abc...",
+        "ip_address": "192.0.2.10",
+        "platform": "android",
+        "login_at": 1784936800
+      }
+    ],
+    "count": 1,
+    "last_evaluated_key": "base64...",
+    "has_more": true
+  }
+}
+```
+
+`login_id` is the stable duplicate-removal key. Return the opaque cursor
+unchanged; malformed cursors and non-integer page sizes return HTTP 400.
+
 ### Get Credits History
 
 `POST /user?request_type=credits_history`
 
-Returns all credit deposits and spends for the current and previous month.
+Returns signed credit movements from all available monthly logs and deposits,
+newest first. Positive `amount` values add credits; negative values consume
+credits.
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `page_size` | integer | No | Default 50, min 1, max 100 |
+| `last_evaluated_key` | string | No | Opaque cursor returned by the previous page |
 
 **Response:**
 ```json
@@ -151,16 +181,26 @@ Returns all credit deposits and spends for the current and previous month.
   "ok": true,
   "data": {
     "transactions": [
-      {"type": "spend", "amount": -0.05, "action": "backtest", "description": "Backtest cost 0.05", "timestamp": 1784936800},
-      {"type": "spend", "amount": -0.01, "action": "economic_news", "description": "Economic news fetch", "timestamp": 1784936700},
-      {"type": "deposit", "amount": 5.0, "action": "deposit", "description": "Payment abc12345", "timestamp": 1784900000}
+      {"transaction_id": "credit#abc...", "type": "adjustment", "amount": 0.05, "action": "credit_adjustment", "description": "Credit adjustment", "timestamp": 1784936800},
+      {"transaction_id": "credit#def...", "type": "spend", "amount": -0.01, "action": "economic_news", "description": "Economic news fetch", "timestamp": 1784936700},
+      {"transaction_id": "deposit#payment-1", "type": "deposit", "amount": 5.0, "action": "deposit", "description": "Payment abc12345", "timestamp": 1784900000}
     ],
-    "count": 15
+    "count": 3,
+    "last_evaluated_key": "base64...",
+    "has_more": true
   }
 }
 ```
 
-**Transaction actions:** `deposit`, `backtest`, `backtest_refund`, `strategy_generate`, `strategy_success`, `economic_news`, `marketplace_signal`
+**Transaction actions:** `deposit`, `backtest`, `credit_adjustment`, `strategy_generate`, `strategy_success`, `economic_news`, `marketplace_signal`
+
+Automatic recovery details and adjustment reasons are not exposed through the
+customer API. Clients should display `credit_adjustment` as a generic balance
+correction and rely on the signed `amount`.
+
+The deterministic `transaction_id` is the duplicate-removal key. Return the
+opaque cursor unchanged; malformed cursors and non-integer page sizes return
+HTTP 400.
 
 ### Get Binance Balance
 
@@ -187,9 +227,13 @@ Requires Binance API keys linked. No body params.
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `status` | string | No | `"active"` (default) returns open/entered signals; `"closed"` returns closed orders |
+| `page_size` | integer | No | Default 25, min 1, max 100 |
+| `last_evaluated_key` | string | No | Opaque cursor returned by the previous page |
 
-Returns at most 100 records. Internal fields and stored exchange/credential
-payloads are removed from the response.
+Records are ordered newest first. `order_history_id` is the stable
+duplicate-removal key. Return the opaque cursor unchanged; malformed cursors,
+invalid statuses and non-integer page sizes return HTTP 400. Undocumented fields and
+stored exchange/credential payloads are removed from the response.
 
 **Response:**
 ```json
@@ -198,14 +242,20 @@ payloads are removed from the response.
   "data": {
     "orders": [
       {
+        "order_history_id": "order#oco#BF-123#...",
+        "timestamp": 1784936800,
         "strategy_name": "emacross",
         "coin": "BTC",
         "exchange_order_status": "NEW",
-        "execution_mode": "real_trade"
+        "execution_mode": "real_trade",
+        "order_source": "signal",
+        "signal_position_key": "emacross#BTC#1784850000"
       }
     ],
     "count": 1,
-    "status": "active"
+    "status": "active",
+    "last_evaluated_key": "base64...",
+    "has_more": true
   }
 }
 ```
@@ -215,9 +265,12 @@ payloads are removed from the response.
 `POST /user?request_type=binance_order_preview`
 
 Uses the same request fields as `binance_order`, but does **not** place an
-exchange order. The server applies Binance price/quantity precision, validates
-TP/SL direction and checks the current minimum-notional rule before returning
-the irreversible-operation summary. OCO is currently supported for Spot only.
+exchange order. The API applies Binance price/quantity precision, validates
+TP/SL direction, checks the current minimum-notional rule and verifies the
+authenticated Binance Spot account's immediately available balance before
+returning the irreversible-operation summary. OCO is currently supported for
+Spot only. A successful preview is not a balance reservation; execution repeats
+the check because the balance can change concurrently.
 
 **Response:**
 ```json
@@ -233,12 +286,18 @@ the irreversible-operation summary. OCO is currently supported for Spot only.
     "price_precision": 2,
     "quantity_precision": 3,
     "minimum_notional": 10,
+    "balance_asset": "BTC",
+    "available_balance": "0.010",
+    "required_balance": "0.001",
+    "balance_verified": true,
+    "order_source": "signal",
+    "signal_position_key": "emacross#BTC#1784850000",
     "irreversible": true
   }
 }
 ```
 
-The mobile client must obtain a successful preview and display an explicit
+The client must obtain a successful preview and require explicit user
 confirmation before calling `binance_order`.
 
 ### Place Binance OCO Order
@@ -258,17 +317,24 @@ Requires Binance API keys linked.
 | `take_profit_price` | number | Yes | Take-profit limit price |
 | `stop_loss_price` | number | Yes | Stop-loss trigger price |
 | `market_type` | string | No | `"spot"` (default). Futures OCO is currently rejected. |
-| `signal_order_id` | string | No | Links to an existing signal record |
-| `signal_position_key` | string | No | If provided, updates the opened signal with OCO info |
+| `order_source` | string | Yes | `"signal"` when entering an active Signal + Orders signal; `"independent"` for an order not linked to a signal |
+| `signal_order_id` | string | Conditional | Optional signal identifier; forbidden for independent orders |
+| `signal_position_key` | string | Conditional | Required for `order_source=signal`; forbidden for independent orders |
 | `idempotency_key` | string | Yes | 16-128 letters, numbers, `_` or `-`; generate before preview and reuse for every retry |
 
 :::{note}
 - Prices and quantities are automatically formatted to Binance precision requirements (from `binanceExchangeInfo.json`)
+- During preview and immediately before a real submission, the API checks the authenticated
+  Binance Spot account. A SELL OCO requires enough free base asset; a BUY OCO
+  requires enough free USDT for the highest order leg. Binance remains the
+  final authority because the balance can change concurrently.
 - The OCO exit side is automatically determined: if your entry `side` is `BUY` (long), exit is `SELL`
-- Order is routed through the Lightsail proxy (statik IP: Frankfurt)
 - The same idempotency key with a different normalized order payload returns HTTP 409.
-- Before Binance is called, an audit intent must be persisted in the table configured
-  by `AUDIT_TABLE_NAME`. Missing table configuration or write permission fails closed.
+- For `order_source=signal`, the API reads the authenticated
+  user's active signal and accepts only `signal_mode=signal_orders`. The symbol
+  and optional `signal_order_id` must match that record.
+- Every accepted order records `order_source`; linked orders also record
+  `signal_position_key` and `signal_order_id`.
 :::
 
 **Example body:**
@@ -281,6 +347,7 @@ Requires Binance API keys linked.
   "take_profit_price": 67000,
   "stop_loss_price": 63000,
   "market_type": "spot",
+  "order_source": "signal",
   "signal_position_key": "emacross#BTC#1784850000",
   "idempotency_key": "oco_1784990000000_a1b2c3d4e5f60708"
 }
@@ -304,6 +371,8 @@ Requires Binance API keys linked.
     ],
     "signal_order_id": "",
     "signal_position_key": "emacross#BTC#1784850000",
+    "order_source": "signal",
+    "local_order_key": "oco#7c6c...",
     "idempotency_key": "oco_1784990000000_a1b2c3d4e5f60708",
     "status": "submitted"
   }
@@ -325,22 +394,21 @@ show `Unknown/Checking` and direct the user to Orders/Binance. The Binance
 `listClientOrderId` is deterministically derived from the idempotency key.
 
 **Errors:**
-- 400: Missing/invalid fields, Futures market, or invalid idempotency key
-- 409: The key was already used with a different normalized order
-- 503: Durable safety or audit state could not be persisted; Binance was not called
-
-**Close reasons (tracked by position_tracker):**
-| Reason | Description |
-|--------|-------------|
-| `TARGET` | Take-profit limit order filled |
-| `STOP` | Stop-loss triggered and filled |
-| `CANCELLED` | User manually cancelled on Binance |
+- 400: Missing/non-finite/non-numeric fields, invalid source/link combination, Futures market, precision/minimum-notional failure, insufficient available Spot balance, or invalid idempotency key
+- 404: A linked active signal does not exist for the authenticated user
+- 409: The key was reused with a different order, or the linked signal is not `signal_orders`/does not match the symbol
+- 503: Binance balance or safe order submission could not be verified; the order was not submitted
 
 ### Get Notifications
 
 `POST /user?request_type=notifications_list`
 
-No body params. Returns last 100 notifications sorted newest first.
+Returns personal notifications newest first.
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `page_size` | integer | No | Default 50, min 1, max 100 |
+| `last_evaluated_key` | string | No | Opaque cursor returned by the previous page |
 
 **Response:**
 ```json
@@ -348,12 +416,18 @@ No body params. Returns last 100 notifications sorted newest first.
   "ok": true,
   "data": {
     "notifications": [
-      {"title": "Backtest Complete", "body": "Your BTC 4h backtest finished", "event_type": "backtest_complete", "timestamp": 1784900000}
+      {"id": "notification_1784900000", "title": "Backtest Complete", "body": "Your BTC 4h backtest finished", "event_type": "backtest_complete", "timestamp": 1784900000}
     ],
-    "count": 1
+    "count": 1,
+    "last_evaluated_key": "base64...",
+    "has_more": true
   }
 }
 ```
+
+The cursor encodes the last `(timestamp, id)` ordering key and must be returned
+unchanged. `has_more=false` with a null cursor is the final page. A malformed
+cursor or non-integer page size returns HTTP 400.
 
 ### Mark Notifications Read
 
@@ -383,24 +457,6 @@ Mark every unread notification:
 
 Exactly one of `notification_id` or `all=true` is required. Unknown notification
 IDs return 404.
-
-### Delete Account
-
-`POST /user?request_type=delete`
-
-No body params. Schedules account for deletion after 30 days.
-
-:::{warning}
-Account is soft-deleted: disabled for 30 days, then permanently removed. Logging in within 30 days automatically restores the account. Credits and strategies are preserved during the grace period.
-The deletion intent is written to the persistent audit trail before the account
-state changes. If audit persistence is unavailable, the request returns 503 and
-deletion is not scheduled.
-:::
-
-**Response:**
-```json
-{"ok": true, "data": {"message": "Account scheduled for deletion", "deletion_scheduled_at": 1787500000, "recovery_until": 1787500000, "note": "Log in within 30 days to cancel deletion and restore your account."}}
-```
 
 ---
 
@@ -511,7 +567,7 @@ Strategies are always created as private. Use `strategy_visibility` to make publ
 | `strategy_name` | string | Yes | Strategy owned by the authenticated user |
 
 Only safe editable/display fields are returned. Strategy source code, owner
-credentials and internal storage metadata are not exposed.
+credentials and private metadata are not exposed.
 
 **Response:**
 ```json
@@ -655,10 +711,8 @@ name. A strategy with an active marketplace listing cannot be deleted; unpublish
 it first.
 :::
 
-The operation verifies ownership and marketplace state, then atomically removes
-the user-visible strategy registry/binding state. Immutable strategy versions
-and related backtest objects are subsequently cleaned up. If marketplace state
-cannot be verified, deletion fails closed and no user-visible data is removed.
+The operation verifies ownership and marketplace state before deletion. If the
+request cannot be completed safely, no user-visible strategy data is removed.
 
 **Response:**
 ```json
@@ -671,8 +725,7 @@ cannot be verified, deletion fails closed and no user-visible data is removed.
 - 403: authenticated user is not the owner
 - 404: strategy not found
 - 409: active marketplace listing must be unpublished first
-- 503: marketplace state or the persistent audit trail could not be verified;
-  nothing was deleted
+- 503: the deletion could not be completed safely; nothing was deleted
 
 ---
 
@@ -683,10 +736,6 @@ cannot be verified, deletion fails closed and no user-visible data is removed.
 ⚠️ **Two backtest modes available:**
 - **Specified Range** (`action=run`): Test a strategy on a specific date range for a single coin.
 - **Full Range** (`action=full_range`): Test a strategy on all available data for multiple coins. Required for marketplace publishing.
-
-:::{note}
-Failed jobs are automatically refunded.
-:::
 
 ### Estimate Cost
 
@@ -798,10 +847,13 @@ Each coin runs as a separate chunk. Required for `marketplace_publish` with `sig
 {"job_id": "...", "status": "running", "progress_pct": 65, "chunks_total": 14, "chunks_done": 9, "elapsed_seconds": 42, "estimated_remaining_seconds": 22}
 ```
 
-**Response (failed — auto-refunded):**
+**Response (failed):**
 ```json
-{"job_id": "...", "status": "failed", "error": "Strategy execution error", "refunded_credits": 0.05}
+{"job_id": "...", "status": "failed", "progress_pct": 65, "chunks_total": 14, "chunks_done": 9, "elapsed_seconds": 42, "estimated_remaining_seconds": 0, "error": "Backtest execution failed"}
 ```
+
+Failed-job credit recovery is automatic and is not a customer endpoint. The
+status response contains only the customer-visible job state.
 
 Status values: `running`, `completed`, `failed`
 
@@ -824,46 +876,10 @@ Status values: `running`, `completed`, `failed`
     "avg_signals_per_month": 0.79, "avg_win_return_pct": 4.97, "avg_loss_return_pct": -9.02,
     "best_trade_pct": 5.33, "worst_trade_pct": -10.45
   },
-  "all_positions": [...], "trades": [...],
+  "all_positions": [], "trades": [],
   "total_positions": 15, "total_trades": 7, "cost_credits": 0.05
 }
 ```
-
-### Refund Failed Backtest
-
-`POST /backtest?action=result_refund`
-
-| Field | Type | Required |
-|-------|------|----------|
-| `job_id` | string | Yes |
-
-Only a job whose persisted progress state is `failed` can be refunded. Refund
-claim and credit increment are committed in one conditional DynamoDB update.
-The claim is keyed by a SHA-256-derived job marker on the authenticated user
-record. Concurrent or repeated requests therefore return the existing result
-rather than issuing a second credit. S3 `progress.json` is a display/cache marker
-and is not the idempotency authority.
-
-**First successful response:**
-```json
-{"action": "result_refund", "job_id": "1784936800_6a2326", "refunded_credits": 0.05, "status": "refunded"}
-```
-
-**Repeated response:**
-```json
-{"action": "result_refund", "job_id": "1784936800_6a2326", "refunded_credits": 0.05, "status": "refunded", "already_refunded": true}
-```
-
-**Errors:** 400 job is not failed, 404 job/progress/manifest not found.
-
-The same atomic claim is used when `action=status` observes a failed job and
-performs the automatic refund. HTTP 500 indicates that the durable refund claim
-could not be written; the client may safely retry.
-
-Backtest credit deductions and refunds also emit a secret-free
-`credit_movement` record to the table configured by `AUDIT_TABLE_NAME`. Audit
-table deployment and Lambda `PutItem` permission are required before production
-acceptance.
 
 ### Delete Backtest
 
@@ -891,6 +907,8 @@ The legacy `{strategy_name, backtest_key}` request remains backward compatible.
 | `strategy_name` | string | No | Filter by strategy |
 | `coin` | string | No | Filter by coin (e.g. `"BTC"`) |
 | `timeframe` | string | No | Filter by timeframe (e.g. `"4h"`) |
+| `page_size` | integer | No | Default 25, min 1, max 100 |
+| `last_evaluated_key` | string | No | Opaque cursor from the previous filtered page |
 
 **Example body:**
 ```json
@@ -899,8 +917,13 @@ The legacy `{strategy_name, backtest_key}` request remains backward compatible.
 
 **Response:**
 ```json
-{"ok": true, "data": {"backtests": [{"job_id": "...", "strategy_name": "emacross", "coin": "BTC", "timeframe": "4h", "cost_credits": 0.05, "summary": {"total_trades": 7, "win_rate": 71.43, "total_return_pct": 5.46}}], "count": 50}}
+{"ok": true, "data": {"backtests": [{"job_id": "...", "strategy_name": "emacross", "coin": "BTC", "timeframe": "4h", "cost_credits": 0.05, "created_at": 1784936800, "summary": {"total_trades": 7, "win_rate": 71.43, "total_return_pct": 5.46}}], "count": 1, "last_evaluated_key": "base64...", "has_more": true}}
 ```
+
+Filtering is applied before pagination. The cursor represents the last
+`(created_at, job_id)` pair and must be returned unchanged. Legacy job IDs
+recover their timestamp when `created_at` is absent. Malformed cursors and
+non-integer page sizes return HTTP 400.
 
 ---
 
@@ -913,6 +936,8 @@ The legacy `{strategy_name, backtest_key}` request remains backward compatible.
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `strategy_name` | string or string[] | No | Filter by strategy. Single string or array. Omit for all signals. |
+| `page_size` | integer | No | Default 25, min 1, max 50 |
+| `last_evaluated_key` | string | No | Opaque cursor returned by the previous page |
 
 **Example body (single strategy):**
 ```json
@@ -931,8 +956,11 @@ The legacy `{strategy_name, backtest_key}` request remains backward compatible.
 
 **Response:**
 ```json
-{"ok": true, "data": {"signals": [{"position_key": "emacross#BTC#1784850000", "coin": "BTC", "strategy_name": "emacross", "owner": "MTHG7A", "side": "LONG", "signal_mode": "signal_orders", "entry_price": "67234.50", "limit_price": "69500.00", "stop_price": "65800.00", "source": "user", "created_at": 1784850000}], "count": 1}}
+{"ok": true, "data": {"signals": [{"position_key": "emacross#BTC#1784850000", "coin": "BTC", "strategy_name": "emacross", "owner": "MTHG7A", "side": "LONG", "signal_mode": "signal_orders", "entry_price": "67234.50", "limit_price": "69500.00", "stop_price": "65800.00", "source": "user", "created_at": 1784850000}], "count": 1, "last_evaluated_key": "base64...", "has_more": true}}
 ```
+
+Return the opaque cursor unchanged. Malformed cursors and non-integer page
+sizes return HTTP 400.
 
 ### Signal History
 
@@ -959,186 +987,12 @@ The legacy `{strategy_name, backtest_key}` request remains backward compatible.
 
 **Response:**
 ```json
-{"ok": true, "data": {"signals": [{"closed_key": "...", "coin": "BTC", "strategy_name": "emacross", "side": "LONG", "signal_mode": "signal_orders", "entry_price": "67234.50", "limit_price": "69500.00", "stop_price": "65800.00", "exit_price": "69500.00", "result": "GAIN", "source": "user", "created_at": 1784850000, "closed_at": 1784950000}], "last_evaluated_key": "base64..."}}
+{"ok": true, "data": {"signals": [{"closed_key": "...", "coin": "BTC", "strategy_name": "emacross", "side": "LONG", "signal_mode": "signal_orders", "entry_price": "67234.50", "limit_price": "69500.00", "stop_price": "65800.00", "exit_price": "69500.00", "result": "GAIN", "source": "user", "created_at": 1784850000, "closed_at": 1784950000}], "count": 1, "last_evaluated_key": "base64...", "has_more": true}}
 ```
 
----
-
-## Automated Trading
-
-:::{warning} This feature is currently unavailable. It will be integrated and made available once the SPK (Capital Markets Board) license is obtained. The following endpoints are currently disabled.
-:::
-
-All automated trading endpoints return the same structure with `bot_settings`, `limits`, `counts`, `catalog`, and `sync` fields.
-
-### Get Status
-
-> **⚠️ This endpoint is currently disabled.**
-
-`POST /user?request_type=automated_trading_status`
-
-No body params.
-
-**Response:**
-```json
-{
-  "bot_settings": {"automated_trading_enabled": true, "allocation_pct": 100, "strategy_configs": {"emacross": {"key": "emacross", "name": "emacross", "source": "user", "enabled": true, "coins": ["BTC", "ETH"]}}},
-  "limits": {"strategies": 3, "coins": 10},
-  "counts": {"total_strategies": 2, "user_strategies": 1, "system_strategies": 1},
-  "catalog": [{"key": "emacross", "name": "emacross", "source": "user", "coins": []}],
-  "sync": {"bindings_created": 0, "bindings_removed": 0}
-}
-```
-
-### Update Automated Trading Settings
-
-> **⚠️ This endpoint is currently disabled.**
-
-`POST /user?request_type=automated_trading_update`
-
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `automated_trading_enabled` | boolean | No | Enable/disable all trading |
-| `allocation_pct` | number | No | 0-100, global allocation % |
-
-**Example body:**
-```json
-{"automated_trading_enabled": true, "allocation_pct": 80}
-```
-
-**Response:**
-```json
-{
-  "bot_settings": {"automated_trading_enabled": true, "allocation_pct": 80, "strategy_configs": {...}},
-  "limits": {"strategies": 3, "coins": 10},
-  "counts": {"total_strategies": 2, "user_strategies": 1, "system_strategies": 1},
-  "catalog": [...],
-  "sync": {"bindings_created": 0, "bindings_removed": 0}
-}
-```
-
-### Add Strategy
-
-> **⚠️ This endpoint is currently disabled.**
-
-`POST /user?request_type=automated_strategy_add`
-
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `strategy_key` | string | Yes | Strategy name from catalog |
-| `coins` | string | No | Comma-separated coin list (e.g. `"BTC,ETH,SOL"`) |
-| `enabled` | boolean | No | Default: true |
-
-**Example body:**
-```json
-{"strategy_key": "emacross", "coins": "BTC,ETH,SOL", "enabled": true}
-```
-
-**Response:**
-```json
-{
-  "bot_settings": {"automated_trading_enabled": true, "allocation_pct": 100, "strategy_configs": {"emacross": {"key": "emacross", "name": "emacross", "source": "user", "enabled": true, "coins": ["BTC", "ETH", "SOL"]}}},
-  "limits": {"strategies": 3, "coins": 10},
-  "counts": {"total_strategies": 1, "user_strategies": 1, "system_strategies": 0},
-  "catalog": [...],
-  "sync": {"bindings_created": 3, "bindings_removed": 0},
-  "ignored_invalid": [],
-  "ignored_over_limit": []
-}
-```
-
-**Errors:**
-- 404: `"Strategy not found"` — strategy_key doesn't exist in your catalog
-- 409: `"Strategy already configured"` — already added
-- 400: `"Max N active strategies allowed for your plan"` — plan limit reached
-
-### Remove Strategy
-
-> **⚠️ This endpoint is currently disabled.**
-
-`POST /user?request_type=automated_strategy_remove`
-
-| Field | Type | Required |
-|-------|------|----------|
-| `strategy_key` | string | Yes |
-
-**Example body:**
-```json
-{"strategy_key": "emacross"}
-```
-
-**Response:**
-```json
-{
-  "bot_settings": {"automated_trading_enabled": true, "allocation_pct": 100, "strategy_configs": {}},
-  "limits": {"strategies": 3, "coins": 10},
-  "counts": {"total_strategies": 0, "user_strategies": 0, "system_strategies": 0},
-  "catalog": [...],
-  "sync": {"bindings_created": 0, "bindings_removed": 3}
-}
-```
-
-**Errors:** 404 strategy not configured.
-
-### Set Strategy Coins
-
-> **⚠️ This endpoint is currently disabled.**
-
-`POST /user?request_type=automated_strategy_set_coins`
-
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `strategy_key` | string | Yes | |
-| `coins` | string | Yes | Comma-separated (e.g. `"BTC,ETH,SOL"`) |
-
-**Example body:**
-```json
-{"strategy_key": "emacross", "coins": "BTC,SOL"}
-```
-
-**Response:**
-```json
-{
-  "bot_settings": {"automated_trading_enabled": true, "allocation_pct": 100, "strategy_configs": {"emacross": {"key": "emacross", "enabled": true, "coins": ["BTC", "SOL"]}}},
-  "limits": {"strategies": 3, "coins": 10},
-  "counts": {"total_strategies": 1, "user_strategies": 1, "system_strategies": 0},
-  "catalog": [...],
-  "sync": {"bindings_created": 1, "bindings_removed": 1},
-  "ignored_invalid": [],
-  "ignored_over_limit": []
-}
-```
-
-**Errors:** 400 system strategy (coins managed by server), 404 not configured.
-
-### Toggle Strategy
-
-> **⚠️ This endpoint is currently disabled.**
-
-`POST /user?request_type=automated_strategy_toggle`
-
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `strategy_key` | string | Yes | |
-| `enabled` | boolean | No | If omitted, toggles current state |
-
-**Example body:**
-```json
-{"strategy_key": "emacross", "enabled": false}
-```
-
-**Response:**
-```json
-{
-  "bot_settings": {"automated_trading_enabled": true, "allocation_pct": 100, "strategy_configs": {"emacross": {"key": "emacross", "enabled": false, "coins": ["BTC", "ETH"]}}},
-  "limits": {"strategies": 3, "coins": 10},
-  "counts": {"total_strategies": 1, "user_strategies": 1, "system_strategies": 0},
-  "catalog": [...],
-  "sync": {"bindings_created": 0, "bindings_removed": 2}
-}
-```
-
-**Errors:** 404 strategy not configured.
+Return the opaque cursor unchanged. Malformed cursors and non-integer page
+sizes return HTTP 400. Filters are evaluated on each result page; clients
+must continue while `has_more` is true even if a filtered page is empty.
 
 ---
 
@@ -1151,8 +1005,8 @@ No body params.
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `filters` | object | No | Filter object (see below) |
-| `page_size` | number | No | Default 50, max 500 |
-| `last_evaluated_key` | string | No | Pagination cursor (base64) from previous response |
+| `page_size` | number | No | Default 50, min 1, max 100 |
+| `last_evaluated_key` | string | No | Opaque pagination cursor returned by the previous response; do not decode or modify |
 
 **Filter object fields:**
 
@@ -1171,8 +1025,12 @@ No body params.
 
 **Response:**
 ```json
-{"ok": true, "data": {"listings": [{"listing_id": "lst_abc123", "strategy_name": "emacross", "owner": "MT***A", "market_type": "spot", "timeframe": "4h", "signal_mode": "signal_orders", "listed_coins": ["BTC", "ETH"], "credits_per_signal": 0.5, "total_pnl_pct": 12.5, "win_rate_pct": 68.0, "subscriber_count": 5, "total_signals_delivered": 42}], "last_evaluated_key": "base64..."}}
+{"ok": true, "data": {"listings": [{"listing_id": "lst_abc123", "strategy_name": "emacross", "owner": "MT***A", "market_type": "spot", "timeframe": "4h", "signal_mode": "signal_orders", "listed_coins": ["BTC", "ETH"], "signal_price_credits": 0.5, "total_pnl_pct": 12.5, "win_rate_pct": 68.0, "subscriber_count": 5, "total_signals_delivered": 42}], "last_evaluated_key": "base64...", "has_more": true}}
 ```
+
+Send the returned cursor unchanged to fetch the next page. `has_more=false`
+and a null cursor identify the final page. Malformed cursors and non-integer
+page sizes return HTTP 400 instead of silently restarting at page one.
 
 ### Listing Detail
 
@@ -1196,17 +1054,22 @@ No body params.
     "leverage": 1,
     "signal_mode": "signal_orders",
     "listed_coins": ["BTC", "ETH"],
-    "credits_per_signal": 0.5,
+    "signal_price_credits": 0.5,
     "total_pnl_pct": 12.5,
     "win_rate_pct": 68.0,
     "subscriber_count": 5,
     "total_signals_delivered": 42,
-    "avg_rating": 4.2,
-    "review_count": 8,
-    "created_at": 1784000000
+    "created_at": 1784000000,
+    "is_owner": false,
+    "subscription_status": "active",
+    "selected_coins": ["BTC"]
   }
 }
 ```
+
+`is_owner` is evaluated for the authenticated caller. When that caller has a
+deterministic subscription for the listing, `subscription_status` and
+`selected_coins` describe it; otherwise they are an empty string and list.
 
 **Errors:** 404 listing not found (or removed and not owner).
 
@@ -1228,10 +1091,14 @@ No body params.
 
 **Response:**
 ```json
-{"ok": true, "data": {"subscription_id": "sub_xyz789", "listing_id": "lst_abc123", "strategy_name": "emacross", "active_coins": ["BTC", "ETH"], "credits_per_signal": 0.5, "bindings_created": 2}}
+{"ok": true, "data": {"subscription_id": "sub_5c9f...", "listing_id": "lst_abc123", "strategy_name": "emacross", "active_coins": ["BTC", "ETH"], "signal_price_credits": 0.5, "bindings_created": 2}}
 ```
 
-**Errors:** 403 license expired, 400 invalid coins / plan limit / self-subscribe.
+The subscription ID is deterministic for the authenticated user and listing.
+The subscription is all-or-nothing; a failed request leaves no partial
+subscription.
+
+**Errors:** 403 license expired or active-strategy plan limit, 400 invalid coins / coin limit / self-subscribe, 409 duplicate subscription or binding conflict, 503 atomic commit unavailable.
 
 ### Unsubscribe
 
@@ -1250,23 +1117,32 @@ No body params.
 
 `POST /user?request_type=marketplace_my_listings`
 
-No body params.
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `page_size` | integer | No | Default 25, min 1, max 100 |
+| `last_evaluated_key` | string | No | Opaque cursor returned by the previous page |
 
 **Response:**
 ```json
-{"ok": true, "data": {"listings": [{"listing_id": "lst_abc123", "strategy_name": "emacross", "status": "active", "signal_mode": "signal_orders", "market_type": "spot", "timeframe": "4h", "listed_coins": ["BTC"], "credits_per_signal": 0.5, "subscriber_count": 5, "total_signals_delivered": 42, "total_credits_earned": 21.0, "total_pnl_pct": 12.5, "win_rate_pct": 68.0, "created_at": 1784000000}]}}
+{"ok": true, "data": {"listings": [{"listing_id": "lst_abc123", "strategy_name": "emacross", "status": "active", "signal_mode": "signal_orders", "market_type": "spot", "timeframe": "4h", "listed_coins": ["BTC"], "signal_price_credits": 0.5, "subscriber_count": 5, "total_signals_delivered": 42, "total_credits_earned": 21.0, "total_pnl_pct": 12.5, "win_rate_pct": 68.0, "created_at": 1784000000}], "last_evaluated_key": "base64...", "has_more": true}}
 ```
 
 ### My Subscriptions
 
 `POST /user?request_type=marketplace_my_subscriptions`
 
-No body params.
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `page_size` | integer | No | Default 25, min 1, max 100 |
+| `last_evaluated_key` | string | No | Opaque cursor returned by the previous page |
 
 **Response:**
 ```json
-{"ok": true, "data": {"subscriptions": [{"subscription_id": "sub_xyz789", "listing_id": "lst_abc123", "creator_beyin_id": "ABC123", "selected_coins": ["BTC"], "status": "active", "credits_per_signal": 0.5, "signals_received": 12, "credits_spent": 6.0, "created_at": 1784000000}]}}
+{"ok": true, "data": {"subscriptions": [{"subscription_id": "sub_xyz789", "listing_id": "lst_abc123", "creator_beyin_id": "ABC123", "selected_coins": ["BTC"], "status": "active", "signal_price_credits": 0.5, "signals_received": 12, "credits_spent": 6.0, "created_at": 1784000000}], "last_evaluated_key": "base64...", "has_more": true}}
 ```
+
+For both account lists, return the cursor unchanged to fetch the next result
+page. Malformed cursors and non-integer page sizes return HTTP 400.
 
 ### Publish Strategy
 
@@ -1372,51 +1248,18 @@ Must have (or had) a subscription to review. One review per user per listing. Ca
 
 **Response:**
 ```json
-{"ok": true, "data": {"listing_id": "lst_abc123", "reviews": [{"beyin_id": "MT***A", "rating": 5, "comment": "Great strategy!", "timestamp": 1784900000}], "count": 3}}
+{"ok": true, "data": {"listing_id": "lst_abc123", "reviews": [{"review_id": "7c6c...", "beyin_id": "MT***A", "rating": 5, "comment": "Great strategy!", "timestamp": 1784900000}], "count": 1, "last_evaluated_key": "base64...", "has_more": true}}
 ```
+
+`review_id` is a deterministic, privacy-safe hash; the source account identifier used
+for duplicate prevention is never returned. Send the cursor unchanged for the
+next page. Malformed cursors and non-integer limits return HTTP 400.
 
 ---
 
 ## Trading Data (Public)
 
 Page 0 is public. Page > 0 requires valid license.
-
-### Market Ticker
-
-`GET /tradingdata?request_type=market_ticker&market=spot&page=0&limit=50`
-
-Returns Binance USDT-pair 24-hour ticker data, sorted with requested favorites
-first and then by descending quote volume.
-
-| Param | Type | Required | Description |
-|-------|------|----------|-------------|
-| `market` | string | No | `"spot"` (default) or `"futures"` |
-| `page` | number | No | Zero-based page, default 0 |
-| `limit` | number | No | Default 50, maximum 100 |
-| `query` | string | No | Case-insensitive symbol substring, normalized to uppercase |
-| `favorites` | string | No | Comma-separated symbols, e.g. `BTCUSDT,ETHUSDT` |
-
-**Response:**
-```json
-{
-  "items": [
-    {
-      "symbol": "BTCUSDT",
-      "last_price": "67234.50",
-      "change_percent_24h": "2.14",
-      "quote_volume_24h": "1845234567.00",
-      "market_type": "spot",
-      "favorite": true
-    }
-  ],
-  "page": 0,
-  "count": 1,
-  "total": 285,
-  "last_page": false
-}
-```
-
-Binance upstream failures return HTTP 502. No demo prices are substituted.
 
 ### Trend Signals
 
@@ -1429,8 +1272,12 @@ Binance upstream failures return HTTP 502. No demo prices are substituted.
 
 **Response:**
 ```json
-{"items": [{"coin_name": "BTC", "graph_type": "240", "timestamp": "1784900000", "signal_type": "LONG", "entry_price": "67234.50", "limit_price": "69500.00", "stop_price": "65800.00", "status": "active"}], "page": 0, "count": 10, "last_page": false}
+{"items": [{"coin_name": "BTC", "graph_type": "4h", "timestamp": "1784900000", "way": "BUY", "is_return_to_trend": false}], "page": 0, "count": 10, "last_page": false}
 ```
+
+Collection items are lightweight discovery records. Candle and trend-line
+arrays are intentionally omitted; request a specific signal through
+`trend_signal_detail` when chart data is needed.
 
 ### Trend Signal Detail
 
@@ -1439,15 +1286,18 @@ Binance upstream failures return HTTP 502. No demo prices are substituted.
 | Param | Type | Required | Description |
 |-------|------|----------|-------------|
 | `coin_name` | string | Yes | e.g. `"BTC"` |
-| `graph_type` | string | Yes | Timeframe in minutes: `"240"` = 4h |
+| `graph_type` | string | Yes | Signal timeframe exactly as returned by the list, for example `"4h"` |
 | `timestamp` | string | Yes | Signal timestamp |
 
 **Response:**
 ```json
-{"item": {"coin_name": "BTC", "graph_type": "240", "timestamp": "1784900000", "signal_type": "LONG", "entry_price": "67234.50", "limit_price": "69500.00", "stop_price": "65800.00", "status": "active", "klines_data": [...]}}
+{"item": {"coin_name": "BTC", "graph_type": "4h", "timestamp": "1784900000", "way": "BUY", "is_return_to_trend": false, "trend_data": {"low_trend": [["1784800000000", 12, "67200.5"], ["1784900000000", 90, "68120.0"]]}, "klines_data": []}}
 ```
 
-Note: `klines_data` only included for licensed users.
+`trend_data` contains the calculated high/low trend-line points. Each point is
+`[timestamp_ms, candle_index, price]`. `klines_data` is included only for
+licensed users. Private storage keys, expiry metadata and delivery links are
+never returned.
 
 ### Market Sentiment
 
@@ -1485,13 +1335,12 @@ Note: `klines_data` only included for licensed users.
 
 `GET /`
 
-No auth required. Returns platform config (plans, pricing, banners). Cache locally.
+No auth required. Returns public platform metadata such as banners and supported assets. Cache locally and ignore unknown fields.
 
 **Response:**
 ```json
 {
   "GENERAL": "general",
-  "plans": {"starter": {"monthly_price": 9.99, "monthly_credits": 2}, "pro": {"monthly_price": 29.99, "monthly_credits": 10}},
   "banner_urls": ["https://..."],
   "supported_coins": ["BTC", "ETH", "SOL"],
   "app_version": "2.0.0"
@@ -1509,7 +1358,7 @@ No body params. Returns coins that are TRADING on Binance AND have kline data av
 {"ok": true, "data": {"coins": ["ADA", "AVAX", "BNB", "BTC", "DOGE", "DOT", "ETH", "LINK", "SOL", "XRP"], "count": 285}}
 ```
 
-Updated daily by BinancePrecisionLister scheduler. Cache this response — it changes at most once per day.
+Cache this response; the available set changes infrequently.
 
 ### Get Platform Notifications
 
@@ -1554,8 +1403,11 @@ No auth required. Returns system announcements (new features, maintenance, etc.)
 
 **Response:**
 ```json
-{"ok": true, "data": {"messages": [{"beyin_id": "MTHG7A", "message": "BTC looking bullish!", "created_at": 1784990000, "sort_key": "..."}], "count": 50}}
+{"ok": true, "data": {"messages": [{"beyin_id": "MTHG7A", "message": "BTC looking bullish!", "created_at": 1784990000, "sort_key": "..."}], "count": 50, "has_more": true, "next_before_sort_key": "1784980000#..."}}
 ```
+
+Pass `next_before_sort_key` back as `before_sort_key` to request the next page.
+The cursor is `null` and `has_more=false` on the final page.
 
 ### Create Post (Leaders Only)
 
@@ -1567,14 +1419,14 @@ Only users with `community_role: "leader"` can create posts.
 |-------|------|----------|-------------|
 | `title` | string | No | Post title |
 | `content` | string | Yes | Max 5000 characters |
-| `image_url` | string | No | S3 URL for attached image |
+| `image_url` | string | No | HTTPS URL for the attached image |
 
 **Response:**
 ```json
 {"ok": true, "data": {"post_id": "post_MTHG7A_1784990000"}}
 ```
 
-Followers are automatically notified via FCM + Telegram.
+Followers are automatically notified through their configured channels.
 
 ### List Posts
 
@@ -1583,12 +1435,16 @@ Followers are automatically notified via FCM + Telegram.
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `author_id` | string | No | Filter by leader. Omit for all posts. |
-| `limit` | number | No | Default 20, max 50 |
+| `limit` | integer | No | Default 20, min 1, max 50 |
+| `last_evaluated_key` | string | No | Opaque cursor returned by the previous page |
 
 **Response:**
 ```json
-{"ok": true, "data": {"posts": [{"post_id": "...", "author_id": "MTHG7A", "title": "BTC Analysis", "content": "...", "image_url": "", "like_count": 12, "comment_count": 3, "created_at": 1784990000}], "count": 5}}
+{"ok": true, "data": {"posts": [{"post_id": "...", "author_id": "MTHG7A", "title": "BTC Analysis", "content": "...", "image_url": "", "like_count": 12, "comment_count": 3, "created_at": 1784990000}], "count": 20, "has_more": true, "last_evaluated_key": "eyJwb3N0X2lkIjp7IlMiOiIuLi4ifX0="}}
 ```
+
+The cursor is opaque and must be sent back unchanged. Malformed cursors return
+HTTP 400 instead of silently restarting at the first page.
 
 ### Like Post
 
@@ -1682,136 +1538,28 @@ Followers are automatically notified via FCM + Telegram.
 
 `POST /user?request_type=community_leaders_list`
 
-No body params.
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `page_size` | integer | No | Default 25, min 1, max 50 |
+| `last_evaluated_key` | string | No | Opaque cursor returned by the previous page |
 
 **Response:**
 ```json
-{"ok": true, "data": {"leaders": [{"beyin_id": "MTHG7A", "name": "CryptoTrader", "bio": "Full-time crypto analyst"}], "count": 3}}
+{"ok": true, "data": {"leaders": [{"beyin_id": "MTHG7A", "name": "CryptoTrader", "bio": "Full-time crypto analyst", "is_following": true}], "count": 1, "last_evaluated_key": "base64...", "has_more": true}}
 ```
+
+The service resolves follow state in a batch for the returned page. Return the
+opaque cursor unchanged; malformed cursors and non-integer page sizes return
+HTTP 400.
 
 ---
 
-## Internal Scheduled Operations
+## Credential safety
 
-These operations are not public API endpoints. They are invoked directly by AWS
-services and rely on Lambda invoke IAM permissions as the security boundary.
-Requests carrying `requestContext`, an HTTP path/method or headers are rejected.
-
-### Reconcile uncertain OCO requests
-
-**Direct Lambda event:**
-
-```json
-{"__internal_action": "oco_reconcile"}
-```
-
-Recommended EventBridge schedule: once per minute.
-
-The handler scans a bounded number of user records for OCO claims in `pending`,
-`unknown` or `stale_unknown` state. Claims younger than the configured minimum
-age are skipped. Older claims are queried through Binance
-`GET /api/v3/orderList` using the deterministic `origClientOrderId`.
-
-| Environment variable | Default | Description |
-|----------------------|---------|-------------|
-| `OCO_RECONCILE_MIN_AGE_SECONDS` | `60` | Minimum age before the first exchange query |
-| `OCO_RECONCILE_STALE_SECONDS` | `900` | Age after which an unresolved claim requires manual review |
-| `OCO_RECONCILE_MAX_USERS` | `200` | Maximum user records scanned per invocation; hard cap 1000 |
-
-Successful reconciliation changes the durable claim to `completed` and stores
-the exchange order-list response for idempotent client replay. An unresolved
-stale claim remains protected from duplicate submission, is marked
-`stale_unknown`, and emits a structured `OCO_RECONCILIATION_STALE` log event.
-
-**Result:**
-
-```json
-{"ok": true, "data": {"users_scanned": 42, "claims_checked": 2, "resolved": 1, "stale_unknown": 1, "errors": 1}}
-```
-
-:::{warning}
-Create a CloudWatch metric filter/alarm for `OCO_RECONCILIATION_STALE` before
-real-order production launch. The current bounded user-table scan is a migration
-bridge; at larger scale, move claims to a dedicated order-request table with a
-status/next-check GSI and TTL.
-:::
-
-### Migrate Binance credentials to KMS v1
-
-This is a controlled one-way migration, not a scheduled public endpoint.
-
-**Direct Lambda event:**
-
-```json
-{"__internal_action": "binance_credentials_migrate", "max_users": 100}
-```
-
-New Binance links/registrations store each small credential as a `kms:v1:`
-prefixed KMS ciphertext. Encryption/decryption binds the ciphertext to:
-
-```json
-{"purpose": "binance_credentials", "beyin_id": "MTHG7A"}
-```
-
-This prevents a ciphertext copied from one user record from being decrypted
-under another user's context. New writes fail closed when
-`BINANCE_CREDENTIAL_KMS_KEY_ID` is absent; they never fall back to XOR.
-
-The migration:
-
-1. scans a bounded batch;
-2. skips empty and already-KMS records;
-3. decrypts legacy XOR values in memory;
-4. encrypts both values with KMS;
-5. conditionally replaces both only if their legacy values are unchanged.
-
-**Result:**
-
-```json
-{"ok": true, "data": {"users_scanned": 100, "migrated": 92, "already_kms": 5, "without_credentials": 2, "conflicts": 1, "errors": 0}}
-```
-
-Required configuration for the active `BeyinFinanceUserAPI` package, including
-its embedded User and Telegram modules:
-
-| Setting | Requirement |
-|---------|-------------|
-| `BINANCE_CREDENTIAL_KMS_KEY_ID` | KMS key ARN, ID or alias |
-| IAM | `kms:Encrypt` for credential-writing Lambda; `kms:Decrypt` for credential consumers |
-| Key policy | Limit use to the expected Lambda roles and encryption context |
-
-Deployment order is mandatory: deploy dual-read consumers first, configure/test
-KMS, enable new writes, then run migration batches. Keep legacy read support and
-`SECRET_KEY` until the legacy credential count is verified as zero and rollback
-windows have expired. Never log plaintext or ciphertext values.
-
-`BinanceRequestElasticIP1` is retired and is not a deployment target or active
-credential consumer. Private Binance calls require the Lightsail proxy
-configuration (`BINANCE_PROXY_URL` and `BINANCE_PROXY_SECRET`) and fail closed
-when it is absent; no request is sent to the deleted Lambda/API route.
-
-## Logging and sensitive-data policy
-
-The API does not log raw request events, headers or bodies. Request logs contain
-only bounded metadata such as path, method, request type, request ID, header
-count, non-sensitive body-key names and whether a body exists.
-
-The following values are recursively redacted from persistent S3 logs and
-embedded exception text:
-
-- Authorization/Bearer tokens and JWTs
-- Beyin passwords
-- Binance and developer API keys/secrets
-- Google identity tokens
-- proxy secrets
-- `kms:v1` ciphertext
-
-The Flutter release crash handler records a bounded, sanitized exception string
-instead of attaching API request/response bodies or raw exception objects.
-Analytics and Crashlytics collection remain disabled outside release mode.
-Sentinel contract tests must accompany changes to authentication, credential,
-network logging or crash reporting.
-
+- Never expose API secrets in client-side logs, analytics, screenshots, URLs, or support messages.
+- Store credentials in a platform-provided secure secret store.
+- Use only the permissions required by the integration and never enable withdrawals on exchange keys.
+- Rotate a credential immediately if exposure is suspected.
 ## Errors
 
 All errors return:
@@ -1830,3 +1578,13 @@ All errors return:
 | 409 | Conflict (duplicate) |
 | 429 | Rate limited |
 | 500 | Server error |
+
+### Backtest estimate modes
+
+`POST /backtest?action=estimate` accepts the common strategy, coin(s), and
+timeframe fields. Without timestamps it estimates a multi-coin `full_range`
+operation, including its success charge. When both `start_ts` and `end_ts` are
+provided it estimates a single-coin `run`, clips the timestamps to available
+data, and returns the range candle count and standard run cost. Supplying only
+one timestamp, an inverted range, or multiple coins in range mode returns 400.
+The response includes `mode`, either `full_range` or `range`.
