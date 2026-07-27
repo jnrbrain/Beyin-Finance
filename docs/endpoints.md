@@ -123,9 +123,8 @@ No body required.
 }
 ```
 
-Connection values are booleans only. Binance API keys/secrets, Google/Telegram
-identifiers and credential ciphertext are never returned. Referral entries are
-normalized to identifier, amount and status; the raw user record is not exposed.
+Connection values are booleans only. Referral entries use the documented
+identifier, amount and status fields.
 
 ### Get Login History
 
@@ -313,7 +312,7 @@ Requires Binance API keys linked.
 | `symbol` | string | Yes | e.g. `"BTCUSDT"` |
 | `side` | string | Yes | `"BUY"` or `"SELL"` — your entry side (OCO exit side is inverted) |
 | `quantity` | number | Yes | Amount to sell/buy when TP or SL triggers |
-| `entry_price` | number | No | Reference entry price (for logging) |
+| `entry_price` | number | No | Optional reference entry price |
 | `take_profit_price` | number | Yes | Take-profit limit price |
 | `stop_loss_price` | number | Yes | Stop-loss trigger price |
 | `market_type` | string | No | `"spot"` (default). Futures OCO is currently rejected. |
@@ -1296,8 +1295,7 @@ arrays are intentionally omitted; request a specific signal through
 
 `trend_data` contains the calculated high/low trend-line points. Each point is
 `[timestamp_ms, candle_index, price]`. `klines_data` is included only for
-licensed users. Private storage keys, expiry metadata and delivery links are
-never returned.
+licensed users.
 
 ### Market Sentiment
 
@@ -1554,12 +1552,6 @@ HTTP 400.
 
 ---
 
-## Credential safety
-
-- Never expose API secrets in client-side logs, analytics, screenshots, URLs, or support messages.
-- Store credentials in a platform-provided secure secret store.
-- Use only the permissions required by the integration and never enable withdrawals on exchange keys.
-- Rotate a credential immediately if exposure is suspected.
 ## Errors
 
 All errors return:
