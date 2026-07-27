@@ -7,7 +7,7 @@ name = "beyin-finance-api-docs"
 version = "2.0.0"
 description = "Public developer API reference for Beyin Finance"
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 authors = [
   { name = "Said Uludağ" }
 ]
