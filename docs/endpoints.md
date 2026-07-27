@@ -999,32 +999,21 @@ must continue while `has_more` is true even if a filtered page is empty.
 
 ### Browse Listings
 
-`POST /user?request_type=marketplace_browse`
+`GET /tradingdata?request_type=marketplace_browse&limit=50`
 
-| Field | Type | Required | Description |
+No authentication is required.
+
+| Query parameter | Type | Required | Description |
 |-------|------|----------|-------------|
-| `filters` | object | No | Filter object (see below) |
-| `page_size` | number | No | Default 50, min 1, max 100 |
-| `last_evaluated_key` | string | No | Opaque pagination cursor returned by the previous response; do not decode or modify |
-
-**Filter object fields:**
-
-| Field | Type | Description |
-|-------|------|-------------|
 | `market_type` | string | `"spot"` or `"futures"` |
 | `timeframe` | string | e.g. `"4h"` |
-| `signal_mode` | string | `"signal_orders"` or `"signal_only"` |
-| `min_win_rate` | number | Min win rate % |
-| `coins` | string[] | Filter by listed coins |
-
-**Example body:**
-```json
-{"filters": {"market_type": "spot", "min_win_rate": 55, "coins": ["BTC"]}, "page_size": 100}
-```
+| `coin` | string | Filter by one listed coin |
+| `limit` | number | Default 50, min 1, max 100 |
+| `cursor` | string | Opaque cursor returned by the previous page |
 
 **Response:**
 ```json
-{"ok": true, "data": {"listings": [{"listing_id": "lst_abc123", "strategy_name": "emacross", "owner": "MT***A", "market_type": "spot", "timeframe": "4h", "signal_mode": "signal_orders", "listed_coins": ["BTC", "ETH"], "signal_price_credits": 0.5, "total_pnl_pct": 12.5, "win_rate_pct": 68.0, "subscriber_count": 5, "total_signals_delivered": 42}], "last_evaluated_key": "base64...", "has_more": true}}
+{"listings": [{"listing_id": "lst_abc123", "strategy_name": "emacross", "owner": "MT***A", "market_type": "spot", "timeframe": "4h", "signal_mode": "signal_orders", "listed_coins": ["BTC", "ETH"], "signal_price_credits": 0.5, "total_pnl_pct": 12.5, "win_rate_pct": 68.0, "subscriber_count": 5, "total_signals_delivered": 42}], "next_cursor": "base64...", "has_more": true}
 ```
 
 Send the returned cursor unchanged to fetch the next page. `has_more=false`
@@ -1032,6 +1021,14 @@ and a null cursor identify the final page. Malformed cursors and non-integer
 page sizes return HTTP 400 instead of silently restarting at page one.
 
 ### Listing Detail
+
+`GET /tradingdata?request_type=marketplace_listing&listing_id=lst_abc123`
+
+No authentication is required. The public response masks the owner and returns
+`is_owner: false`, an empty `subscription_status`, and an empty
+`selected_coins` list.
+
+For the authenticated caller's ownership and subscription state, use:
 
 `POST /user?request_type=marketplace_listing_detail`
 
@@ -1238,16 +1235,19 @@ Must have (or had) a subscription to review. One review per user per listing. Ca
 
 ### Get Reviews
 
-`POST /user?request_type=marketplace_reviews`
+`GET /tradingdata?request_type=marketplace_reviews&listing_id=lst_abc123&limit=20`
 
-| Field | Type | Required |
+No authentication is required.
+
+| Query parameter | Type | Required |
 |-------|------|----------|
 | `listing_id` | string | Yes |
 | `limit` | number | No | Default 20, max 50 |
+| `cursor` | string | No | Opaque cursor returned by the previous page |
 
 **Response:**
 ```json
-{"ok": true, "data": {"listing_id": "lst_abc123", "reviews": [{"review_id": "7c6c...", "beyin_id": "MT***A", "rating": 5, "comment": "Great strategy!", "timestamp": 1784900000}], "count": 1, "last_evaluated_key": "base64...", "has_more": true}}
+{"listing_id": "lst_abc123", "reviews": [{"review_id": "7c6c...", "rating": 5, "comment": "Great strategy!", "timestamp": 1784900000}], "count": 1, "next_cursor": "base64...", "has_more": true}
 ```
 
 `review_id` is a deterministic, privacy-safe hash; the source account identifier used
@@ -1392,19 +1392,22 @@ No auth required. Returns system announcements (new features, maintenance, etc.)
 
 ### Global Chat — History
 
-`POST /user?request_type=community_chat_history`
+`GET /tradingdata?request_type=community_chat&limit=50`
 
-| Field | Type | Required | Description |
+No authentication is required to read visible community messages. Use the
+returned `next_cursor` as the `cursor` query parameter for the next page.
+
+| Query parameter | Type | Required | Description |
 |-------|------|----------|-------------|
 | `limit` | number | No | Default 50, max 100 |
-| `before_sort_key` | string | No | Pagination — get messages before this key |
+| `cursor` | string | No | Cursor returned by the previous page |
 
 **Response:**
 ```json
-{"ok": true, "data": {"messages": [{"beyin_id": "MTHG7A", "message": "BTC looking bullish!", "created_at": 1784990000, "sort_key": "..."}], "count": 50, "has_more": true, "next_before_sort_key": "1784980000#..."}}
+{"messages": [{"beyin_id": "MTHG7A", "message": "BTC looking bullish!", "created_at": "1784990000", "sort_key": "..."}], "count": 50, "has_more": true, "next_cursor": "1784980000#..."}
 ```
 
-Pass `next_before_sort_key` back as `before_sort_key` to request the next page.
+Pass `next_cursor` back as `cursor` to request the next page.
 The cursor is `null` and `has_more=false` on the final page.
 
 ### Create Post (Leaders Only)
@@ -1428,17 +1431,19 @@ Followers are automatically notified through their configured channels.
 
 ### List Posts
 
-`POST /user?request_type=community_post_list`
+`GET /tradingdata?request_type=community_posts&limit=20`
 
-| Field | Type | Required | Description |
+No authentication is required to read visible leader posts. Pagination uses
+the opaque `next_cursor` response value as the next request's `cursor`.
+
+| Query parameter | Type | Required | Description |
 |-------|------|----------|-------------|
-| `author_id` | string | No | Filter by leader. Omit for all posts. |
 | `limit` | integer | No | Default 20, min 1, max 50 |
-| `last_evaluated_key` | string | No | Opaque cursor returned by the previous page |
+| `cursor` | string | No | Opaque cursor returned by the previous page |
 
 **Response:**
 ```json
-{"ok": true, "data": {"posts": [{"post_id": "...", "author_id": "MTHG7A", "title": "BTC Analysis", "content": "...", "image_url": "", "like_count": 12, "comment_count": 3, "created_at": 1784990000}], "count": 20, "has_more": true, "last_evaluated_key": "eyJwb3N0X2lkIjp7IlMiOiIuLi4ifX0="}}
+{"posts": [{"post_id": "...", "author_id": "MTHG7A", "title": "BTC Analysis", "content": "...", "image_url": "", "like_count": "12", "comment_count": "3", "created_at": "1784990000"}], "count": 20, "has_more": true, "next_cursor": "eyJwb3N0X2lkIjp7IlMiOiIuLi4ifX0="}
 ```
 
 The cursor is opaque and must be sent back unchanged. Malformed cursors return
@@ -1482,8 +1487,6 @@ HTTP 400 instead of silently restarting at the first page.
 | `post_id` | string | Conditional | For reporting a post |
 | `type` | string | No | `"post"` (default) or `"chat"` |
 | `sort_key` | string | Conditional | For reporting a chat message |
-
-3 reports → content is automatically hidden.
 
 **Response:**
 ```json
@@ -1534,21 +1537,22 @@ HTTP 400 instead of silently restarting at the first page.
 
 ### List Leaders
 
-`POST /user?request_type=community_leaders_list`
+`GET /tradingdata?request_type=community_leaders&limit=25`
 
-| Field | Type | Required | Description |
+No authentication is required. Anonymous results return `is_following: false`;
+follow and unfollow actions still require authentication.
+
+| Query parameter | Type | Required | Description |
 |-------|------|----------|-------------|
-| `page_size` | integer | No | Default 25, min 1, max 50 |
-| `last_evaluated_key` | string | No | Opaque cursor returned by the previous page |
+| `limit` | integer | No | Default 25, min 1, max 50 |
+| `cursor` | string | No | Opaque cursor returned by the previous page |
 
 **Response:**
 ```json
-{"ok": true, "data": {"leaders": [{"beyin_id": "MTHG7A", "name": "CryptoTrader", "bio": "Full-time crypto analyst", "is_following": true}], "count": 1, "last_evaluated_key": "base64...", "has_more": true}}
+{"leaders": [{"beyin_id": "MTHG7A", "name": "CryptoTrader", "bio": "Full-time crypto analyst", "is_following": false}], "count": 1, "next_cursor": "base64...", "has_more": true}
 ```
 
-The service resolves follow state in a batch for the returned page. Return the
-opaque cursor unchanged; malformed cursors and non-integer page sizes return
-HTTP 400.
+Return the opaque cursor unchanged; malformed cursors return HTTP 400.
 
 ---
 
