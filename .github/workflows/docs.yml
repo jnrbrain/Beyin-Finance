@@ -25,3 +25,5 @@ jobs:
         run: python -m unittest discover -s tests -p "test_*.py" -v
       - name: Build documentation with warnings as errors
         run: python -m sphinx -E -W --keep-going -b html docs _build/html
+      - name: Verify rendered Contents links and anchors
+        run: python tests/check_rendered_links.py _build/html
