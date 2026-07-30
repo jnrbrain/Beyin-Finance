@@ -345,6 +345,14 @@ Places an OCO (One-Cancels-Other) order on Binance. Combines a Take-Profit limit
 
 Requires Binance API keys linked.
 
+:::{important}
+Before using this endpoint, the user's Binance API key must have the **Enable Spot & Margin Trading** permission enabled in Binance. The key must also restrict access to trusted IPs and include the Beyin Finance Binance proxy static IP in the Binance API whitelist:
+
+`3.120.214.198`
+
+Orders sent through Beyin Finance are routed to Binance from this static IP, so Binance may reject order placement if the IP is not whitelisted.
+:::
+
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `symbol` | string | Yes | e.g. `"BTCUSDT"` |

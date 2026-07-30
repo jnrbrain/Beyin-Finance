@@ -129,13 +129,12 @@ body,
 }
 
 .wy-side-nav-search > a::before {
-  width: 30px;
-  height: 30px;
-  flex: 0 0 30px;
-  background: var(--bf-logo-image) center / 42px 42px no-repeat;
-  border-radius: 999px;
+  width: 28px;
+  height: 28px;
+  flex: 0 0 28px;
+  background: var(--bf-logo-image) center / contain no-repeat;
   content: "";
-  transform: translateY(1px);
+  transform: translateY(0);
 }
 
 .wy-side-nav-search > a.icon-home::before {
