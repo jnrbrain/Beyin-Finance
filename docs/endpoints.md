@@ -1617,7 +1617,58 @@ follow and unfollow actions still require authentication.
 
 Return the opaque cursor unchanged; malformed cursors return HTTP 400.
 
+### Apply for Community Leader
+
+`POST /user?request_type=community_leader_apply`
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `display_name` | string | Yes | Leader Display Name (3-30 Latin alphanumeric chars or spaces, e.g. `"FX Analiz"`) |
+| `reason` | string | Yes | Reason for application (max 1000 chars) |
+| `experience` | string | Yes | Trading experience details (max 2000 chars) |
+
+The system automatically generates a unique lowercase nickname by removing spaces from `display_name` (e.g. `"FX Analiz"` -> `"fxanaliz"`). Returns 409 Conflict if nickname is already taken by another user.
+
+**Response:**
+```json
+{
+  "ok": true,
+  "data": {
+    "status": "pending",
+    "display_name": "FX Analiz",
+    "nickname": "fxanaliz",
+    "message": "Application submitted. We will review and notify you."
+  }
+}
+```
+
+### Update Leader Profile
+
+`POST /user?request_type=community_leader_update`
+
+Only accessible by users with approved `"leader"` community role.
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `display_name` | string | Yes | New Leader Display Name (3-30 Latin alphanumeric chars or spaces) |
+| `bio` | string | No | Updated bio / description |
+| `avatar_url` | string | No | Optional new avatar image URL |
+
+**Response:**
+```json
+{
+  "ok": true,
+  "data": {
+    "display_name": "FX Analiz Pro",
+    "nickname": "fxanalizpro",
+    "community_bio": "Crypto & Forex specialist",
+    "avatar_url": "https://..."
+  }
+}
+```
+
 ---
+
 
 ## Errors
 
@@ -1637,6 +1688,7 @@ All errors return:
 | 409 | Conflict (duplicate) |
 | 429 | Rate limited |
 | 500 | Server error |
+
 
 ### Backtest estimate modes
 
