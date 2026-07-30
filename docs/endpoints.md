@@ -39,7 +39,7 @@ User API and backtest responses echo the accepted value in
 
 ---
 
-## Rate Limits
+## Rate Limits & Concurrency
 
 Rate limits can vary by account and endpoint. Use the response headers as the
 authoritative limit for the authenticated client.
@@ -56,7 +56,7 @@ X-RateLimit-Reset: 1784990340 # Unix timestamp when the window resets
 
 When rate limited (HTTP 429):
 ```
-Retry-After: 23               # Seconds until reset
+Retry-After: 15               # Seconds until reset
 ```
 
 ### Client Best Practices
@@ -65,6 +65,61 @@ Retry-After: 23               # Seconds until reset
 - If `Remaining` < 5, slow down or queue requests
 - On 429, wait `Retry-After` seconds before retrying
 - Cache responses when possible (e.g. `account_info`, `available_coins`)
+
+### System Concurrency & Capacity Limits (HTTP 429)
+
+The infrastructure enforces an AWS regional account limit of **1000 concurrent executions** designed for **200+ concurrent active trading users**.
+
+#### Backtest Worker Concurrency Controls:
+- **Max Global Backtest Workers:** 500 concurrent worker instances account-wide (reserving 500 for REST API, Signal Engine, Push Worker).
+- **Max Per-User Backtest Workers:** 100 concurrent worker instances per user.
+
+#### Fair-Share Adaptive Allocation Formula:
+$$W_{\text{available}} = \max(0, 500 - W_{\text{active}})$$
+$$W_{\text{fair\_share}} = \min\left(100, \max\left(1, \left\lfloor \frac{W_{\text{available}}}{U_{\text{active}}} \right\rfloor\right)\right)$$
+$$B_{\text{user}} = \min\left(N_{\text{coins}}, W_{\text{fair\_share}}\right)$$
+
+#### Backtest Job Status Response Schema (`GET /backtest?action=status&job_id=...`):
+```json
+{
+  "action": "status",
+  "job_id": "fr_1784990340_a1b2c3",
+  "status": "running",
+  "progress_pct": 45,
+  "chunks_total": 200,
+  "chunks_done": 90,
+  "active_workers": 100,
+  "queued_workers": 100,
+  "max_workers_user": 100,
+  "max_workers_global": 500,
+  "coin_progress": {
+    "BTC": {"status": "completed", "progress_pct": 100},
+    "ETH": {"status": "running", "progress_pct": 45},
+    "SOL": {"status": "queued", "progress_pct": 0}
+  }
+}
+```
+
+When high platform utilization or background compute worker spikes approach system limits, the API returns a structured HTTP 429 response with a `Retry-After` header:
+
+**Concurrency / Capacity Throttling Response (HTTP 429):**
+```json
+{
+  "error": "Backtest engine capacity limit reached. Please wait a few moments before trying again.",
+  "reason": "backtest_capacity_exceeded",
+  "retry_after": 15
+}
+```
+
+**Common `reason` codes:**
+- `rate_limit_exceeded`: User per-minute API request rate limit exceeded.
+- `backtest_capacity_exceeded`: Parallel backtest worker concurrency capacity reached.
+- `ai_generation_busy`: AI strategy generation queue is currently at max concurrency.
+
+**Recommended Handling:**
+Clients must inspect the `Retry-After` header (or `retry_after` JSON field) and apply exponential backoff with random jitter before retrying the request.
+
+---
 
 ## Account
 
@@ -525,6 +580,7 @@ IDs return 404.
 
 ## Strategy
 
+
 ### Create Strategy
 
 `POST /user?request_type=strategy_generate`
@@ -543,7 +599,7 @@ IDs return 404.
 Strategies are always created as private. Use `strategy_visibility` to make public after a successful full_range backtest.
 :::
 
-**Cost:** 1.0 ⚡ total (0.05 upfront + 0.95 on success)
+**Cost:** 0.20 ⚡ total (0.05 upfront + 0.15 on success)
 
 **Example body:**
 ```json
@@ -552,7 +608,7 @@ Strategies are always created as private. Use `strategy_visibility` to make publ
 
 **Response:**
 ```json
-{"ok": true, "data": {"strategy_name": "emacross", "version": 1, "signal_mode": "signal_orders", "status": "generating", "cost_upfront": 0.05, "cost_on_success": 0.95}}
+{"ok": true, "data": {"strategy_name": "emacross", "version": 1, "signal_mode": "signal_orders", "status": "generating", "cost_upfront": 0.05, "cost_on_success": 0.15}}
 ```
 
 **Errors:** 400 name too short (min 4), 400 invalid characters, 400 must contain letter, 402 insufficient credits, 409 name taken.
@@ -1274,9 +1330,9 @@ Page 0 is public. Page > 0 requires valid license.
 {"items": [{"coin_name": "BTC", "graph_type": "4h", "timestamp": "1784900000", "way": "BUY", "is_return_to_trend": false}], "page": 0, "count": 10, "last_page": false}
 ```
 
-Collection items are lightweight discovery records. Candle and trend-line
-arrays are intentionally omitted; request a specific signal through
-`trend_signal_detail` when chart data is needed.
+Collection items are lightweight discovery records. Clients must not rely on
+`klines_data` in this response; request the selected signal through
+`trend_signal_detail` when rendering its chart.
 
 ### Trend Signal Detail
 
@@ -1285,7 +1341,7 @@ arrays are intentionally omitted; request a specific signal through
 | Param | Type | Required | Description |
 |-------|------|----------|-------------|
 | `coin_name` | string | Yes | e.g. `"BTC"` |
-| `graph_type` | string | Yes | Signal timeframe exactly as returned by the list, for example `"4h"` |
+| `graph_type` | string | Yes | Signal timeframe exactly as returned by the list. It may be a formatted value such as `"4h"` or a minute value such as `"15"`. |
 | `timestamp` | string | Yes | Signal timestamp |
 
 **Response:**
@@ -1293,9 +1349,16 @@ arrays are intentionally omitted; request a specific signal through
 {"item": {"coin_name": "BTC", "graph_type": "4h", "timestamp": "1784900000", "way": "BUY", "is_return_to_trend": false, "trend_data": {"low_trend": [["1784800000000", 12, "67200.5"], ["1784900000000", 90, "68120.0"]]}, "klines_data": []}}
 ```
 
-`trend_data` contains the calculated high/low trend-line points. Each point is
-`[timestamp_ms, candle_index, price]`. `klines_data` is included only for
-licensed users.
+`trend_data` contains the calculated high/low trend-line anchor points. Each
+point is `[timestamp_ms, candle_index, price]`; the two values are anchors,
+not candles. The client draws the line from anchor 1 through anchor 2 and
+stops it at the break candle.
+
+`klines_data` is the signal snapshot used to render the historical chart. A
+detail response intended for the Trend Break history UI must include the full
+snapshot (currently 200 candles). The response must not expose DynamoDB
+storage fields such as `gsi_pk`, `coin_name#graph_type`, `ttl`, or internal
+links.
 
 ### Market Sentiment
 
