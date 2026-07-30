@@ -29,6 +29,7 @@ exclude_patterns = [
 html_theme = 'sphinx_rtd_theme'
 html_static_path = ['_static']
 html_css_files = ['beyin.css']
+html_js_files = ['beyin-theme.js']
 html_theme_options = {
     'style_external_links': True,
     'collapse_navigation': False,

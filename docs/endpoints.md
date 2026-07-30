@@ -348,7 +348,7 @@ Requires Binance API keys linked.
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `symbol` | string | Yes | e.g. `"BTCUSDT"` |
-| `side` | string | Yes | `"BUY"` or `"SELL"` â€” your entry side (OCO exit side is inverted) |
+| `side` | string | Yes | `"BUY"` or `"SELL"` - your entry side (OCO exit side is inverted) |
 | `quantity` | number | Yes | Amount to sell/buy when TP or SL triggers |
 | `entry_price` | number | No | Optional reference entry price |
 | `take_profit_price` | number | Yes | Take-profit limit price |
@@ -490,7 +490,7 @@ IDs return 404.
 
 `POST /user?request_type=economic_news`
 
-**Cost:** 0.01 âš¡ per request
+**Cost:** 0.01 credits per request
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
@@ -520,7 +520,7 @@ IDs return 404.
 
 `POST /user?request_type=economic_calendar`
 
-**Cost:** 0.01 âš¡ per request
+**Cost:** 0.01 credits per request
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
@@ -569,7 +569,7 @@ IDs return 404.
 Strategies are always created as private. Use `strategy_visibility` to make public after a successful full_range backtest.
 :::
 
-**Cost:** 0.20 âš¡ total (0.05 upfront + 0.15 on success)
+**Cost:** 0.20 credits total (0.05 upfront + 0.15 on success)
 
 **Example body:**
 ```json
@@ -653,7 +653,7 @@ Editing a strategy creates a new version and triggers AI code regeneration. All 
 |-------|------|----------|-------------|
 | `strategy_name` | string | Yes | |
 | `visibility` | string | Yes | `"private"` or `"public"` |
-| `credits_per_signal` | number | Yes* | 0.01-10 (*required for public) â€” fee charged to subscribers per signal |
+| `credits_per_signal` | number | Yes* | 0.01-10 (*required for public) - fee charged to subscribers per signal |
 | `timeframe` | string | Yes* | (*required for public) e.g. `"4h"` |
 | `coins` | string[] | Yes* | (*required for public) coins to list |
 
@@ -758,7 +758,7 @@ request cannot be completed safely, no user-visible strategy data is removed.
 
 **Endpoint:** `POST /backtest?action=<action>`
 
-âš ï¸ **Two backtest modes available:**
+**Two backtest modes available:**
 - **Specified Range** (`action=run`): Test a strategy on a specific date range for a single coin.
 - **Full Range** (`action=full_range`): Test a strategy on all available data for multiple coins. Required for marketplace publishing.
 
@@ -1179,7 +1179,7 @@ page. Malformed cursors and non-integer page sizes return HTTP 400.
 | `requested_coins` | string[] | Yes | Coins to list |
 
 :::{warning}
-Requirements for `signal_mode=signal_orders`: Must have a successful `full_range` backtest. Only coins with positive PnL and â‰¥10 trades are listed. Others are rejected.
+Requirements for `signal_mode=signal_orders`: Must have a successful `full_range` backtest. Only coins with positive PnL and at least 10 trades are listed. Others are rejected.
 :::
 
 **Example body:**
@@ -1457,7 +1457,7 @@ and maintenance messages.
 
 ## Community
 
-### Global Chat â€” Send Message
+### Global Chat - Send Message
 
 `POST /user?request_type=community_chat_send`
 
@@ -1470,7 +1470,7 @@ and maintenance messages.
 {"ok": true, "data": {"msg_id": "1784990000_MTHG7A", "sort_key": "1784990000#1784990000_MTHG7A"}}
 ```
 
-### Global Chat â€” History
+### Global Chat - History
 
 `GET /tradingdata?request_type=community_chat&limit=50`
 
