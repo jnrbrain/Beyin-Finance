@@ -25,29 +25,24 @@ class PublicReferenceScopeTests(unittest.TestCase):
         "binance_balance",
         "binance_order",
         "binance_order_preview",
-        "community_chat",
         "community_chat_send",
         "community_follow",
         "community_leader_apply",
-        "community_leaders",
+        "community_leader_update",
         "community_post_comment",
         "community_post_create",
         "community_post_like",
-        "community_posts",
         "community_post_report",
         "community_unfollow",
         "credits_history",
         "economic_calendar",
         "economic_news",
         "login_history",
-        "marketplace_browse",
-        "marketplace_listing",
         "marketplace_listing_detail",
         "marketplace_my_listings",
         "marketplace_my_subscriptions",
         "marketplace_publish",
         "marketplace_review",
-        "marketplace_reviews",
         "marketplace_subscribe",
         "marketplace_unpublish",
         "marketplace_unsubscribe",
@@ -55,7 +50,6 @@ class PublicReferenceScopeTests(unittest.TestCase):
         "notifications_list",
         "notifications_mark_read",
         "order_history",
-        "platform_notifications",
         "signal_history",
         "strategy_delete",
         "strategy_detail",
@@ -64,10 +58,6 @@ class PublicReferenceScopeTests(unittest.TestCase):
         "strategy_rollback",
         "strategy_versions",
         "strategy_visibility",
-        "trend_indicator",
-        "trend_indicator_history",
-        "trend_signal_detail",
-        "trend_signals",
     }
     PUBLIC_BACKTEST_ACTIONS = {
         "delete_backtest",
@@ -79,20 +69,47 @@ class PublicReferenceScopeTests(unittest.TestCase):
         "run",
         "status",
     }
+    PUBLIC_TRADING_DATA_OPERATIONS = {
+        "community_chat",
+        "community_leaders",
+        "community_posts",
+        "market_quote",
+        "marketplace_browse",
+        "marketplace_listing",
+        "marketplace_reviews",
+        "platform_notifications",
+        "trend_indicator",
+        "trend_indicator_history",
+        "trend_signal_detail",
+        "trend_signals",
+    }
 
     def test_published_operations_exactly_match_public_allowlist(self):
         user_operations = set(
-            re.findall(r"request_type=([a-z0-9_]+)", ENDPOINTS)
+            re.findall(r"POST /user\?request_type=([a-z0-9_]+)", ENDPOINTS)
+        )
+        trading_data_operations = set(
+            re.findall(
+                r"GET /tradingdata\?request_type=([a-z0-9_]+)",
+                ENDPOINTS,
+            )
         )
         backtest_actions = set(
             re.findall(r"/backtest\?action=([a-z0-9_]+)", ENDPOINTS)
         )
         backtest_actions.discard("action")
         self.assertEqual(user_operations, self.PUBLIC_USER_OPERATIONS)
+        self.assertEqual(
+            trading_data_operations,
+            self.PUBLIC_TRADING_DATA_OPERATIONS,
+        )
         self.assertEqual(backtest_actions, self.PUBLIC_BACKTEST_ACTIONS)
 
     def test_unavailable_routes_are_not_advertised(self):
-        self.assertNotIn("request_type=market_ticker", PUBLISHED_SOURCE)
+        self.assertNotIn(
+            "GET /tradingdata?request_type=market_ticker",
+            PUBLISHED_SOURCE,
+        )
 
     def test_repository_metadata_is_real_and_buildable(self):
         metadata = tomllib.loads(

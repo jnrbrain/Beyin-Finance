@@ -1360,6 +1360,50 @@ snapshot (currently 200 candles). The response must not expose DynamoDB
 storage fields such as `gsi_pk`, `coin_name#graph_type`, `ttl`, or internal
 links.
 
+### Market Quote
+
+`GET /tradingdata?request_type=market_quote&symbol=BTCUSDT&market=spot`
+
+Returns a lightweight live quote for chart order preparation. This endpoint is
+public market data; it does not submit orders and does not require user Binance
+credentials.
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `symbol` | string | Yes | Binance USDT pair, e.g. `BTCUSDT` |
+| `market` | string | No | `spot` or `futures` (default `spot`) |
+
+**Response:**
+```json
+{
+  "symbol": "BTCUSDT",
+  "market_type": "spot",
+  "bid_price": "67200.10",
+  "ask_price": "67200.20",
+  "last_price": "67200.15",
+  "spread": "0.10",
+  "spread_percent": "0.0001488",
+  "commission_rate": "0.001",
+  "commission_percent": "0.1",
+  "timestamp": 1784900000000
+}
+```
+
+For `market=futures`, the response also includes:
+
+```json
+{
+  "mark_price": "67200.12",
+  "funding_rate": "0.0001",
+  "next_funding_time": "1784908800000"
+}
+```
+
+Clients should refresh this endpoint at a low frequency suitable for UI
+previews, currently 5 seconds in the mobile chart. Any real order preview or
+submission must revalidate bid/ask, funding, commission, precision, notional,
+and risk limits server-side.
+
 ### Market Sentiment
 
 `GET /tradingdata?request_type=trend_indicator&market_key=BTCUSDT%231h`

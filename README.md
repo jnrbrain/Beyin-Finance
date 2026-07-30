@@ -8,7 +8,7 @@ Public API documentation for [Beyin Finance](https://beyinfinance.com) trading p
 |-------|---------|
 | `POST /user?request_type=<type>` | Account, marketplace, strategy and signal operations |
 | `GET /` | Public platform configuration |
-| `GET /tradingdata?request_type=<type>` | Trend signals, market sentiment |
+| `GET /tradingdata?request_type=<type>` | Trend signals, public market data, bid/ask quotes |
 | `POST /backtest?action=<action>` | Backtest estimates, jobs and results |
 
 ## Authentication
