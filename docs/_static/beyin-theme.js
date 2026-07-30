@@ -19,8 +19,9 @@
     if (button) button.textContent = label(theme);
   }
 
+  applyTheme(preferredTheme());
+
   function installToggle() {
-    applyTheme(preferredTheme());
     const search = document.querySelector(".wy-side-nav-search");
     if (!search || document.querySelector(".bf-theme-toggle")) return;
     const button = document.createElement("button");
@@ -30,7 +31,12 @@
       const current = root.getAttribute("data-bf-theme") || "light";
       applyTheme(current === "dark" ? "light" : "dark");
     });
-    search.appendChild(button);
+    const version = search.querySelector(".version");
+    if (version && version.parentNode === search) {
+      version.insertAdjacentElement("afterend", button);
+    } else {
+      search.appendChild(button);
+    }
     button.textContent = label(root.getAttribute("data-bf-theme") || "light");
   }
 

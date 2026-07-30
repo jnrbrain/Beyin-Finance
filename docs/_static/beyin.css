@@ -93,23 +93,36 @@ body,
   align-items: center;
   justify-content: center;
   gap: 8px;
+  width: 100%;
   color: #ffffff;
   font-size: 18px;
   font-weight: 800;
+  line-height: 1.2;
   letter-spacing: 0;
 }
 
 .wy-side-nav-search > a::before {
-  width: 28px;
-  height: 28px;
-  flex: 0 0 28px;
-  background: url("app_icon.png") center / contain no-repeat;
+  width: 30px;
+  height: 30px;
+  flex: 0 0 30px;
+  background: url("docs_logo.png") center / 42px 42px no-repeat;
   border-radius: 999px;
   content: "";
+  transform: translateY(1px);
 }
 
 .wy-side-nav-search > a.icon-home::before {
   font-family: inherit;
+  margin: 0;
+  padding: 0;
+}
+
+.wy-side-nav-search > a.icon-home {
+  text-align: left;
+}
+
+.wy-side-nav-search > a.icon-home::after {
+  display: none;
 }
 
 .wy-side-nav-search > a:hover,
@@ -131,9 +144,9 @@ body,
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: calc(100% - 20px);
-  min-height: 36px;
-  margin: 14px 10px 4px;
+  width: calc(100% - 28px);
+  min-height: 34px;
+  margin: 12px 14px 16px;
   padding: 8px 12px;
   background: rgba(241, 185, 62, 0.12);
   border: 1px solid rgba(241, 185, 62, 0.35);
@@ -169,40 +182,46 @@ body,
 }
 
 .wy-menu-vertical li.current {
-  background: var(--bf-sidebar-soft);
+  background: var(--bf-sidebar-soft) !important;
 }
 
 .wy-menu-vertical li.current > a,
 .wy-menu-vertical li.toctree-l1.current > a {
-  background: #3a321e;
-  border-color: var(--bf-primary);
-  color: var(--bf-primary);
+  background: #3a321e !important;
+  border-color: var(--bf-primary) !important;
+  color: var(--bf-primary) !important;
   font-weight: 800;
 }
 
 .wy-menu-vertical li.current a {
-  border-right: 0;
+  border-right: 0 !important;
 }
 
 .wy-menu-vertical li.current ul {
-  background: var(--bf-sidebar-soft);
+  background: var(--bf-sidebar-soft) !important;
 }
 
-.wy-menu-vertical li.current ul a {
-  background: transparent;
-  color: #dedede;
-  border-color: transparent;
+.wy-menu-vertical li.current ul li a,
+.wy-menu-vertical li.current ul li.toctree-l2 a,
+.wy-menu-vertical li.current ul li.toctree-l3 a {
+  background: var(--bf-sidebar-soft) !important;
+  color: #dedede !important;
+  border-color: transparent !important;
 }
 
-.wy-menu-vertical li.current ul a:hover {
-  background: rgba(241, 185, 62, 0.1);
-  color: #ffffff;
+.wy-menu-vertical li.current ul li a:hover,
+.wy-menu-vertical li.current ul li.toctree-l2 a:hover,
+.wy-menu-vertical li.current ul li.toctree-l3 a:hover {
+  background: rgba(241, 185, 62, 0.12) !important;
+  color: #ffffff !important;
 }
 
 .wy-menu-vertical li.current ul li.current > a,
-.wy-menu-vertical li.current ul li.on a {
-  background: #2a2a2a;
-  color: #ffffff;
+.wy-menu-vertical li.current ul li.on a,
+.wy-menu-vertical li.current ul li.toctree-l2.current > a,
+.wy-menu-vertical li.current ul li.toctree-l3.current > a {
+  background: #2a2a2a !important;
+  color: #ffffff !important;
   font-weight: 800;
 }
 
