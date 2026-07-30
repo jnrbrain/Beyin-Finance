@@ -22,6 +22,16 @@ source_suffix = {
 }
 
 templates_path = ['_templates']
-exclude_patterns = []
+exclude_patterns = [
+    'runtime-integration-notes.md',
+]
 
 html_theme = 'sphinx_rtd_theme'
+html_static_path = ['_static']
+html_css_files = ['beyin.css']
+html_theme_options = {
+    'style_external_links': True,
+    'collapse_navigation': False,
+    'sticky_navigation': True,
+    'navigation_depth': 3,
+}

@@ -111,6 +111,35 @@ class PublicReferenceScopeTests(unittest.TestCase):
             PUBLISHED_SOURCE,
         )
 
+    def test_public_docs_do_not_expose_internal_system_details(self):
+        forbidden_terms = [
+            "execute-api",
+            "Lambda",
+            "DynamoDB",
+            "S3",
+            "worker",
+            "concurrency",
+            "Fair-Share",
+            "fair-share",
+            "max_workers",
+            "active_workers",
+            "queued_workers",
+            "chunks_total",
+            "chunks_done",
+            "signal_position_key",
+            "local_order_key",
+            "request_hash",
+            "BFOCO",
+            "binanceExchangeInfo",
+            "unknown_checking",
+            "No authentication is required",
+            "No auth required",
+            "Public Trading Data routes",
+            "credential-free",
+        ]
+        for term in forbidden_terms:
+            self.assertNotIn(term, PUBLISHED_SOURCE)
+
     def test_repository_metadata_is_real_and_buildable(self):
         metadata = tomllib.loads(
             (ROOT / "pyproject.toml").read_text(encoding="utf-8")

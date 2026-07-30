@@ -1,4 +1,4 @@
-# Beyin Finance Developer API Reference
+﻿# Beyin Finance Developer API Reference
 
 **Base URL:** `https://08rxd1g3ik.execute-api.eu-central-1.amazonaws.com/BeyinAPI`
 
@@ -6,13 +6,13 @@
 
 ## Authentication
 
-Use developer API credentials for authenticated integrations. Do not send
-credentials to public routes unless the endpoint explicitly requires them.
+Use developer API credentials for integrations. Official app/web clients may
+use the authenticated session token issued at login.
 
 | Client | Authentication |
 |--------|----------------|
 | Developer/integration client | `X-API-Key` + `X-API-Secret` |
-| Public Trading Data routes | No authentication unless the route says otherwise |
+| Trading Data routes | `X-API-Key` + `X-API-Secret` or authenticated app session |
 
 **Developer API-key example:**
 
@@ -24,9 +24,9 @@ Content-Type: application/json
 
 Generate API keys from the Telegram bot, web dashboard, or mobile app.
 
-A missing or invalid developer credential returns HTTP 401.
-Unless an endpoint is explicitly marked “No auth required,” every `/user` and
-`/backtest` operation in this reference requires the developer headers above.
+A missing or invalid credential returns HTTP 401. Every `/tradingdata`, `/user`,
+and `/backtest` operation in this reference requires a tracked caller identity
+unless the endpoint is explicitly part of login or registration.
 
 ### Request correlation
 
@@ -39,7 +39,7 @@ User API and backtest responses echo the accepted value in
 
 ---
 
-## Rate Limits & Concurrency
+## Rate Limits
 
 Rate limits can vary by account and endpoint. Use the response headers as the
 authoritative limit for the authenticated client.
@@ -62,59 +62,42 @@ Retry-After: 15               # Seconds until reset
 ### Client Best Practices
 
 - Read `X-RateLimit-Remaining` from every response
-- If `Remaining` < 5, slow down or queue requests
+- If `Remaining` < 5, slow down or delay requests
 - On 429, wait `Retry-After` seconds before retrying
 - Cache responses when possible (e.g. `account_info`, `available_coins`)
 
-### System Concurrency & Capacity Limits (HTTP 429)
+### Backtest Job Status Response Schema
 
-The infrastructure enforces an AWS regional account limit of **1000 concurrent executions** designed for **200+ concurrent active trading users**.
+`POST /backtest?action=status`
 
-#### Backtest Worker Concurrency Controls:
-- **Max Global Backtest Workers:** 500 concurrent worker instances account-wide (reserving 500 for REST API, Signal Engine, Push Worker).
-- **Max Per-User Backtest Workers:** 100 concurrent worker instances per user.
-
-#### Fair-Share Adaptive Allocation Formula:
-$$W_{\text{available}} = \max(0, 500 - W_{\text{active}})$$
-$$W_{\text{fair\_share}} = \min\left(100, \max\left(1, \left\lfloor \frac{W_{\text{available}}}{U_{\text{active}}} \right\rfloor\right)\right)$$
-$$B_{\text{user}} = \min\left(N_{\text{coins}}, W_{\text{fair\_share}}\right)$$
-
-#### Backtest Job Status Response Schema (`GET /backtest?action=status&job_id=...`):
 ```json
 {
   "action": "status",
-  "job_id": "fr_1784990340_a1b2c3",
+  "job_id": "job_1784990340",
   "status": "running",
   "progress_pct": 45,
-  "chunks_total": 200,
-  "chunks_done": 90,
-  "active_workers": 100,
-  "queued_workers": 100,
-  "max_workers_user": 100,
-  "max_workers_global": 500,
   "coin_progress": {
     "BTC": {"status": "completed", "progress_pct": 100},
-    "ETH": {"status": "running", "progress_pct": 45},
-    "SOL": {"status": "queued", "progress_pct": 0}
+    "ETH": {"status": "running", "progress_pct": 45}
   }
 }
 ```
 
-When high platform utilization or background compute worker spikes approach system limits, the API returns a structured HTTP 429 response with a `Retry-After` header:
+When a request exceeds the current limit, the API returns HTTP 429 with a
+`Retry-After` header:
 
-**Concurrency / Capacity Throttling Response (HTTP 429):**
+**Rate Limit Response (HTTP 429):**
 ```json
 {
-  "error": "Backtest engine capacity limit reached. Please wait a few moments before trying again.",
-  "reason": "backtest_capacity_exceeded",
+  "error": "Too many requests. Please wait before trying again.",
+  "reason": "rate_limit_exceeded",
   "retry_after": 15
 }
 ```
 
 **Common `reason` codes:**
 - `rate_limit_exceeded`: User per-minute API request rate limit exceeded.
-- `backtest_capacity_exceeded`: Parallel backtest worker concurrency capacity reached.
-- `ai_generation_busy`: AI strategy generation queue is currently at max concurrency.
+- `temporarily_unavailable`: The request cannot be processed at this moment.
 
 **Recommended Handling:**
 Clients must inspect the `Retry-After` header (or `retry_after` JSON field) and apply exponential backoff with random jitter before retrying the request.
@@ -296,14 +279,14 @@ stored exchange/credential payloads are removed from the response.
   "data": {
     "orders": [
       {
-        "order_history_id": "order#oco#BF-123#...",
+        "order_id": "ord_1784936800",
         "timestamp": 1784936800,
         "strategy_name": "emacross",
         "coin": "BTC",
         "exchange_order_status": "NEW",
         "execution_mode": "real_trade",
         "order_source": "signal",
-        "signal_position_key": "emacross#BTC#1784850000"
+        "linked_signal_id": "sig_1784850000"
       }
     ],
     "count": 1,
@@ -319,12 +302,12 @@ stored exchange/credential payloads are removed from the response.
 `POST /user?request_type=binance_order_preview`
 
 Uses the same request fields as `binance_order`, but does **not** place an
-exchange order. The API applies Binance price/quantity precision, validates
-TP/SL direction, checks the current minimum-notional rule and verifies the
-authenticated Binance Spot account's immediately available balance before
-returning the irreversible-operation summary. OCO is currently supported for
-Spot only. A successful preview is not a balance reservation; execution repeats
-the check because the balance can change concurrently.
+exchange order. The API applies exchange precision rules, validates TP/SL
+direction, checks minimum notional requirements and verifies the authenticated
+account's available balance before returning the irreversible-operation
+summary. OCO is currently supported for Spot only. A successful preview is not
+a balance reservation; execution repeats validation because market/account
+state can change.
 
 **Response:**
 ```json
@@ -345,7 +328,7 @@ the check because the balance can change concurrently.
     "required_balance": "0.001",
     "balance_verified": true,
     "order_source": "signal",
-    "signal_position_key": "emacross#BTC#1784850000",
+    "linked_signal_id": "sig_1784850000",
     "irreversible": true
   }
 }
@@ -365,30 +348,23 @@ Requires Binance API keys linked.
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `symbol` | string | Yes | e.g. `"BTCUSDT"` |
-| `side` | string | Yes | `"BUY"` or `"SELL"` — your entry side (OCO exit side is inverted) |
+| `side` | string | Yes | `"BUY"` or `"SELL"` â€” your entry side (OCO exit side is inverted) |
 | `quantity` | number | Yes | Amount to sell/buy when TP or SL triggers |
 | `entry_price` | number | No | Optional reference entry price |
 | `take_profit_price` | number | Yes | Take-profit limit price |
 | `stop_loss_price` | number | Yes | Stop-loss trigger price |
 | `market_type` | string | No | `"spot"` (default). Futures OCO is currently rejected. |
 | `order_source` | string | Yes | `"signal"` when entering an active Signal + Orders signal; `"independent"` for an order not linked to a signal |
-| `signal_order_id` | string | Conditional | Optional signal identifier; forbidden for independent orders |
-| `signal_position_key` | string | Conditional | Required for `order_source=signal`; forbidden for independent orders |
+| `linked_signal_id` | string | Conditional | Opaque signal identifier required for `order_source=signal`; forbidden for independent orders |
 | `idempotency_key` | string | Yes | 16-128 letters, numbers, `_` or `-`; generate before preview and reuse for every retry |
 
 :::{note}
-- Prices and quantities are automatically formatted to Binance precision requirements (from `binanceExchangeInfo.json`)
-- During preview and immediately before a real submission, the API checks the authenticated
-  Binance Spot account. A SELL OCO requires enough free base asset; a BUY OCO
-  requires enough free USDT for the highest order leg. Binance remains the
-  final authority because the balance can change concurrently.
-- The OCO exit side is automatically determined: if your entry `side` is `BUY` (long), exit is `SELL`
-- The same idempotency key with a different normalized order payload returns HTTP 409.
-- For `order_source=signal`, the API reads the authenticated
-  user's active signal and accepts only `signal_mode=signal_orders`. The symbol
-  and optional `signal_order_id` must match that record.
-- Every accepted order records `order_source`; linked orders also record
-  `signal_position_key` and `signal_order_id`.
+- Prices and quantities are automatically formatted to exchange precision requirements.
+- During preview and immediately before a real submission, the API validates
+  account balance and order constraints again.
+- The same idempotency key must be reused for retries of the same logical order.
+- For `order_source=signal`, provide the opaque linked signal identifier returned
+  by the signal endpoint.
 :::
 
 **Example body:**
@@ -402,8 +378,8 @@ Requires Binance API keys linked.
   "stop_loss_price": 63000,
   "market_type": "spot",
   "order_source": "signal",
-  "signal_position_key": "emacross#BTC#1784850000",
-  "idempotency_key": "oco_1784990000000_a1b2c3d4e5f60708"
+  "linked_signal_id": "sig_1784850000",
+  "idempotency_key": "idem_1784990000"
 }
 ```
 
@@ -413,7 +389,7 @@ Requires Binance API keys linked.
   "ok": true,
   "data": {
     "order_list_id": "12345678",
-    "client_order_id": "BFOCO_MTHG7A_1784990000",
+    "client_order_id": "exchange_client_order_id",
     "symbol": "BTCUSDT",
     "side": "SELL",
     "quantity": "0.00100",
@@ -423,35 +399,29 @@ Requires Binance API keys linked.
       {"symbol": "BTCUSDT", "orderId": 111, "type": "LIMIT_MAKER"},
       {"symbol": "BTCUSDT", "orderId": 222, "type": "STOP_LOSS_LIMIT"}
     ],
-    "signal_order_id": "",
-    "signal_position_key": "emacross#BTC#1784850000",
+    "linked_signal_id": "sig_1784850000",
     "order_source": "signal",
-    "local_order_key": "oco#7c6c...",
-    "idempotency_key": "oco_1784990000000_a1b2c3d4e5f60708",
+    "idempotency_key": "idem_1784990000",
     "status": "submitted"
   }
 }
 ```
 
-Repeating the same key and normalized payload after completion returns the
-stored response with `idempotent_replay=true`; Binance is not called twice.
-
-If Binance acceptance cannot be confirmed, the API conservatively returns HTTP
-202 instead of declaring failure:
+Repeating the same idempotency key for the same logical order returns the
+stored response with `idempotent_replay=true`.
 
 ```json
-{"ok": true, "data": {"status": "unknown_checking", "idempotency_key": "oco_1784990000000_a1b2c3d4e5f60708", "client_order_id": "BFOCO_MTHG7A_0123456789abcdef", "message": "Binance acceptance could not be confirmed; no duplicate was submitted"}}
+{"ok": true, "data": {"status": "processing", "idempotency_key": "idem_1784990000", "message": "Order submission is being verified."}}
 ```
 
-The client must not create a new key or blindly resubmit in this state. It must
-show `Unknown/Checking` and direct the user to Orders/Binance. The Binance
-`listClientOrderId` is deterministically derived from the idempotency key.
+The client must not create a new key or blindly resubmit while an order is in a
+processing state. Show the order status to the user and poll order history.
 
 **Errors:**
-- 400: Missing/non-finite/non-numeric fields, invalid source/link combination, Futures market, precision/minimum-notional failure, insufficient available Spot balance, or invalid idempotency key
+- 400: Missing/non-finite/non-numeric fields, invalid source/link combination, Futures market, precision/minimum-notional failure, insufficient available balance, or invalid idempotency key
 - 404: A linked active signal does not exist for the authenticated user
-- 409: The key was reused with a different order, or the linked signal is not `signal_orders`/does not match the symbol
-- 503: Binance balance or safe order submission could not be verified; the order was not submitted
+- 409: The key was reused with a different order, or the linked signal does not match the symbol
+- 503: Balance or order submission could not be verified; the order was not submitted
 
 ### Get Notifications
 
@@ -520,7 +490,7 @@ IDs return 404.
 
 `POST /user?request_type=economic_news`
 
-**Cost:** 0.01 ⚡ per request
+**Cost:** 0.01 âš¡ per request
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
@@ -550,7 +520,7 @@ IDs return 404.
 
 `POST /user?request_type=economic_calendar`
 
-**Cost:** 0.01 ⚡ per request
+**Cost:** 0.01 âš¡ per request
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
@@ -599,7 +569,7 @@ IDs return 404.
 Strategies are always created as private. Use `strategy_visibility` to make public after a successful full_range backtest.
 :::
 
-**Cost:** 0.20 ⚡ total (0.05 upfront + 0.15 on success)
+**Cost:** 0.20 âš¡ total (0.05 upfront + 0.15 on success)
 
 **Example body:**
 ```json
@@ -683,7 +653,7 @@ Editing a strategy creates a new version and triggers AI code regeneration. All 
 |-------|------|----------|-------------|
 | `strategy_name` | string | Yes | |
 | `visibility` | string | Yes | `"private"` or `"public"` |
-| `credits_per_signal` | number | Yes* | 0.01-10 (*required for public) — fee charged to subscribers per signal |
+| `credits_per_signal` | number | Yes* | 0.01-10 (*required for public) â€” fee charged to subscribers per signal |
 | `timeframe` | string | Yes* | (*required for public) e.g. `"4h"` |
 | `coins` | string[] | Yes* | (*required for public) coins to list |
 
@@ -788,7 +758,7 @@ request cannot be completed safely, no user-visible strategy data is removed.
 
 **Endpoint:** `POST /backtest?action=<action>`
 
-⚠️ **Two backtest modes available:**
+âš ï¸ **Two backtest modes available:**
 - **Specified Range** (`action=run`): Test a strategy on a specific date range for a single coin.
 - **Full Range** (`action=full_range`): Test a strategy on all available data for multiple coins. Required for marketplace publishing.
 
@@ -899,12 +869,12 @@ Each coin runs as a separate chunk. Required for `marketplace_publish` with `sig
 
 **Response (running):**
 ```json
-{"job_id": "...", "status": "running", "progress_pct": 65, "chunks_total": 14, "chunks_done": 9, "elapsed_seconds": 42, "estimated_remaining_seconds": 22}
+{"job_id": "...", "status": "running", "progress_pct": 65, "elapsed_seconds": 42, "estimated_remaining_seconds": 22}
 ```
 
 **Response (failed):**
 ```json
-{"job_id": "...", "status": "failed", "progress_pct": 65, "chunks_total": 14, "chunks_done": 9, "elapsed_seconds": 42, "estimated_remaining_seconds": 0, "error": "Backtest execution failed"}
+{"job_id": "...", "status": "failed", "progress_pct": 65, "elapsed_seconds": 42, "estimated_remaining_seconds": 0, "error": "Backtest execution failed"}
 ```
 
 Failed-job credit recovery is automatic and is not a customer endpoint. The
@@ -1057,7 +1027,8 @@ must continue while `has_more` is true even if a filtered page is empty.
 
 `GET /tradingdata?request_type=marketplace_browse&limit=50`
 
-No authentication is required.
+Authentication is required. The caller identity is tracked for rate limiting,
+audit and entitlement checks.
 
 | Query parameter | Type | Required | Description |
 |-------|------|----------|-------------|
@@ -1080,9 +1051,8 @@ page sizes return HTTP 400 instead of silently restarting at page one.
 
 `GET /tradingdata?request_type=marketplace_listing&listing_id=lst_abc123`
 
-No authentication is required. The public response masks the owner and returns
-`is_owner: false`, an empty `subscription_status`, and an empty
-`selected_coins` list.
+Authentication is required. The response masks unrelated owner data and returns
+caller-specific ownership and subscription state when applicable.
 
 For the authenticated caller's ownership and subscription state, use:
 
@@ -1209,7 +1179,7 @@ page. Malformed cursors and non-integer page sizes return HTTP 400.
 | `requested_coins` | string[] | Yes | Coins to list |
 
 :::{warning}
-Requirements for `signal_mode=signal_orders`: Must have a successful `full_range` backtest. Only coins with positive PnL and ≥10 trades are listed. Others are rejected.
+Requirements for `signal_mode=signal_orders`: Must have a successful `full_range` backtest. Only coins with positive PnL and â‰¥10 trades are listed. Others are rejected.
 :::
 
 **Example body:**
@@ -1293,7 +1263,8 @@ Must have (or had) a subscription to review. One review per user per listing. Ca
 
 `GET /tradingdata?request_type=marketplace_reviews&listing_id=lst_abc123&limit=20`
 
-No authentication is required.
+Authentication is required. The caller identity is tracked for rate limiting,
+audit and entitlement checks.
 
 | Query parameter | Type | Required |
 |-------|------|----------|
@@ -1312,9 +1283,10 @@ next page. Malformed cursors and non-integer limits return HTTP 400.
 
 ---
 
-## Trading Data (Public)
+## Trading Data
 
-Page 0 is public. Page > 0 requires valid license.
+Authentication is required for every Trading Data request. Some responses may
+still be license-gated by plan after the caller is identified.
 
 ### Trend Signals
 
@@ -1356,17 +1328,16 @@ stops it at the break candle.
 
 `klines_data` is the signal snapshot used to render the historical chart. A
 detail response intended for the Trend Break history UI must include the full
-snapshot (currently 200 candles). The response must not expose DynamoDB
-storage fields such as `gsi_pk`, `coin_name#graph_type`, `ttl`, or internal
-links.
+signal snapshot returned by the API. Storage-only fields and internal links are
+not part of the public response contract.
 
 ### Market Quote
 
 `GET /tradingdata?request_type=market_quote&symbol=BTCUSDT&market=spot`
 
-Returns a lightweight live quote for chart order preparation. This endpoint is
-public market data; it does not submit orders and does not require user Binance
-credentials.
+Returns a lightweight live quote for chart order preparation. This endpoint
+does not submit orders and does not require user Binance credentials, but the
+API caller must still be authenticated and tracked.
 
 | Param | Type | Required | Description |
 |-------|------|----------|-------------|
@@ -1440,7 +1411,8 @@ and risk limits server-side.
 
 `GET /`
 
-No auth required. Returns public platform metadata such as banners and supported assets. Cache locally and ignore unknown fields.
+Authentication is required. Returns platform metadata such as banners and
+supported assets. Cache locally and ignore unknown fields.
 
 **Response:**
 ```json
@@ -1469,7 +1441,8 @@ Cache this response; the available set changes infrequently.
 
 `GET /tradingdata?request_type=platform_notifications&limit=20`
 
-No auth required. Returns system announcements (new features, maintenance, etc.).
+Authentication is required. Returns system announcements such as new features
+and maintenance messages.
 
 | Param | Type | Required | Description |
 |-------|------|----------|-------------|
@@ -1484,7 +1457,7 @@ No auth required. Returns system announcements (new features, maintenance, etc.)
 
 ## Community
 
-### Global Chat — Send Message
+### Global Chat â€” Send Message
 
 `POST /user?request_type=community_chat_send`
 
@@ -1497,12 +1470,12 @@ No auth required. Returns system announcements (new features, maintenance, etc.)
 {"ok": true, "data": {"msg_id": "1784990000_MTHG7A", "sort_key": "1784990000#1784990000_MTHG7A"}}
 ```
 
-### Global Chat — History
+### Global Chat â€” History
 
 `GET /tradingdata?request_type=community_chat&limit=50`
 
-No authentication is required to read visible community messages. Use the
-returned `next_cursor` as the `cursor` query parameter for the next page.
+Authentication is required to read visible community messages. Use the returned
+`next_cursor` as the `cursor` query parameter for the next page.
 
 | Query parameter | Type | Required | Description |
 |-------|------|----------|-------------|
@@ -1540,8 +1513,8 @@ Followers are automatically notified through their configured channels.
 
 `GET /tradingdata?request_type=community_posts&limit=20`
 
-No authentication is required to read visible leader posts. Pagination uses
-the opaque `next_cursor` response value as the next request's `cursor`.
+Authentication is required to read visible leader posts. Pagination uses the
+opaque `next_cursor` response value as the next request's `cursor`.
 
 | Query parameter | Type | Required | Description |
 |-------|------|----------|-------------|
@@ -1646,8 +1619,8 @@ HTTP 400 instead of silently restarting at the first page.
 
 `GET /tradingdata?request_type=community_leaders&limit=25`
 
-No authentication is required. Anonymous results return `is_following: false`;
-follow and unfollow actions still require authentication.
+Authentication is required. `is_following` is evaluated for the authenticated
+caller; follow and unfollow actions use the `/user` endpoints.
 
 | Query parameter | Type | Required | Description |
 |-------|------|----------|-------------|

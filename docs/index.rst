@@ -6,4 +6,3 @@ Beyin Finance API Documentation
    :caption: Contents
 
    endpoints
-   runtime-integration-notes
