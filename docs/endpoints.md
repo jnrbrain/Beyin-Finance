@@ -61,8 +61,8 @@ Retry-After: 15               # Seconds until reset
 
 ### Plan Limits
 
-| Plan | Monthly | 6-Month | Rate Limit (req/min) | Max Strategies | Max Coins/Strategy |
-|------|---------|---------|---------------------|----------------|-------------------|
+| Plan | Monthly | Annual (-50%) | Rate Limit (req/min) | Max Strategies | Max Coins/Strategy |
+|------|---------|---------------|---------------------|----------------|-------------------|
 | Free | – | – | 30 | 1 | 5 |
 | Starter | $10 | $60 | 30 | 1 | 5 |
 | Plus | $20 | $120 | 60 | 2 | 15 |
@@ -70,6 +70,17 @@ Retry-After: 15               # Seconds until reset
 | Investor | $100 | $600 | 240 | 10 | 200 |
 
 > First-party (app/web) requests receive 2× the listed rate limit.
+
+### Payment
+
+Payments are processed manually via **Binance Pay**.
+
+- **Binance Pay ID:** `863 826 81`
+- **Minimum payment:** 1 USDT
+- **Exchange rate:** 1 USDT = 1 Beyin Credit
+- Subscription duration is proportional to the amount sent.
+- Payments over 6 months receive an additional **6 months free**.
+- **First payment bonus:** The first minimum 1 USDT payment grants a **1-month demo** of the selected plan.
 
 ### Client Best Practices
 
