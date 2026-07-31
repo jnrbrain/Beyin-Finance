@@ -579,6 +579,21 @@ footer,
   color: var(--bf-text-secondary);
 }
 
+.bf-hero-banner {
+  margin: 0 0 24px;
+  border-radius: 10px;
+  overflow: hidden;
+  border: 1px solid var(--bf-border);
+}
+
+.bf-hero-banner img {
+  display: block;
+  width: 100%;
+  height: auto;
+  object-fit: cover;
+  max-height: 220px;
+}
+
 .bf-docs-intro {
   display: flex;
   gap: 18px;

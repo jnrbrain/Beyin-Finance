@@ -28,6 +28,7 @@ exclude_patterns = [
 
 html_theme = 'sphinx_rtd_theme'
 html_static_path = ['_static']
+ogp_image = '_static/hero_banner.png'
 html_css_files = ['beyin.css']
 html_js_files = ['beyin-theme.js']
 html_theme_options = {

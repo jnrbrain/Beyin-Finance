@@ -3,6 +3,9 @@ Beyin Finance API Documentation
 
 .. raw:: html
 
+   <div class="bf-hero-banner">
+     <img src="_static/hero_banner.png" alt="Beyin Finance" />
+   </div>
    <section class="bf-docs-intro">
      <div>
        <p class="bf-docs-intro-kicker">Beyin Finance</p>
