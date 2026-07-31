@@ -357,6 +357,9 @@ state can change.
 }
 ```
 
+Use `price_precision` and `quantity_precision` from this response to format all price
+and quantity strings in the subsequent `binance_order` request.
+
 The client must obtain a successful preview and require explicit user
 confirmation before calling `binance_order`.
 
@@ -380,17 +383,26 @@ Orders sent through Beyin Finance are routed to Binance from this static IP, so 
 |-------|------|----------|-------------|
 | `symbol` | string | Yes | e.g. `"BTCUSDT"` |
 | `side` | string | Yes | `"BUY"` or `"SELL"` - your entry side (OCO exit side is inverted) |
-| `quantity` | number | Yes | Amount to sell/buy when TP or SL triggers |
-| `entry_price` | number | No | Optional reference entry price |
-| `take_profit_price` | number | Yes | Take-profit limit price |
-| `stop_loss_price` | number | Yes | Stop-loss trigger price |
+| `quantity` | string | Yes | Amount to sell/buy when TP or SL triggers (formatted to `quantity_precision`) |
+| `entry_price` | string | No | Optional reference entry price (formatted to `price_precision`) |
+| `take_profit_price` | string | Yes | Take-profit limit price (formatted to `price_precision`) |
+| `stop_loss_price` | string | Yes | Stop-loss trigger price (formatted to `price_precision`) |
 | `market_type` | string | No | `"spot"` (default). Futures OCO is currently rejected. |
 | `order_source` | string | Yes | `"signal"` when entering an active Signal + Orders signal; `"independent"` for an order not linked to a signal |
 | `linked_signal_id` | string | Conditional | Opaque signal identifier required for `order_source=signal`; forbidden for independent orders |
 | `idempotency_key` | string | Yes | 16-128 letters, numbers, `_` or `-`; generate before preview and reuse for every retry |
 
+:::{warning}
+All price and quantity values **must** be formatted as strings using the exchange precision
+returned by `binance_order_preview`. Use `price_precision` for all price fields and
+`quantity_precision` for quantity. Binance rejects orders with incorrect decimal precision.
+
+Example: If `price_precision: 2` → send `"67000.00"` not `67000` or `"67000.001"`.
+If `quantity_precision: 3` → send `"0.001"` not `0.001` or `"0.0010"`.
+:::
+
 :::{note}
-- Prices and quantities are automatically formatted to exchange precision requirements.
+- Prices and quantities must be sent as strings formatted to the exchange precision returned by preview. The API validates precision and rejects misformatted values.
 - During preview and immediately before a real submission, the API validates
   account balance and order constraints again.
 - The same idempotency key must be reused for retries of the same logical order.
@@ -403,10 +415,10 @@ Orders sent through Beyin Finance are routed to Binance from this static IP, so 
 {
   "symbol": "BTCUSDT",
   "side": "BUY",
-  "quantity": 0.001,
-  "entry_price": 65000,
-  "take_profit_price": 67000,
-  "stop_loss_price": 63000,
+  "quantity": "0.001",
+  "entry_price": "65000.00",
+  "take_profit_price": "67000.00",
+  "stop_loss_price": "63000.00",
   "market_type": "spot",
   "order_source": "signal",
   "linked_signal_id": "sig_1784850000",
