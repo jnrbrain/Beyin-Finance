@@ -1,6 +1,6 @@
 ﻿# Beyin Finance Developer API Reference
 
-**Base URL:** `https://api.beyinfinance.com/BeyinAPI`
+**Base URL:** Provided in your API credentials dashboard.
 
 ---
 
