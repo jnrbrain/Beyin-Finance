@@ -1,6 +1,6 @@
 ﻿# Beyin Finance Developer API Reference
 
-**Base URL:** `https://08rxd1g3ik.execute-api.eu-central-1.amazonaws.com/BeyinAPI`
+**Base URL:** `https://api.beyinfinance.com/BeyinAPI`
 
 ---
 
