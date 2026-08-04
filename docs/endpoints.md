@@ -61,13 +61,13 @@ Retry-After: 15               # Seconds until reset
 
 ### Plan Limits
 
-| Plan | Monthly | Annual (-50%) | Rate Limit (req/min) | Max Strategies | Max Coins/Strategy |
-|------|---------|---------------|---------------------|----------------|-------------------|
-| Free | – | – | 30 | 1 | 5 |
+| Plan | Monthly | Annual (-50%) | Rate Limit (req/min) | Max Active Strategies | Max Coins/Strategy |
+|------|---------|---------------|---------------------|----------------------|-------------------|
+| Free | – | – | 30 | 0 | 0 |
 | Starter | $10 | $60 | 30 | 1 | 5 |
-| Plus | $20 | $120 | 60 | 2 | 15 |
-| Pro | $50 | $300 | 120 | 5 | 30 |
-| Investor | $100 | $600 | 240 | 10 | 200 |
+| Plus | $20 | $120 | 60 | 2 | 10 |
+| Pro | $50 | $300 | 120 | 5 | 25 |
+| Investor | $100 | $600 | 240 | 10 | 50 |
 
 > First-party (app/web) requests receive 2× the listed rate limit.
 
