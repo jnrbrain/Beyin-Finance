@@ -527,6 +527,111 @@ IDs return 404.
 
 ---
 
+## Developer API Key Management
+
+Manage multiple Developer API keys per account. Each user may have up to
+**3 active** Developer API keys simultaneously. These endpoints require JWT
+authentication (API key auth is not allowed for key management operations).
+
+### Generate API Key
+
+`POST /user?request_type=api_key_generate`
+
+Creates a new Developer API key. The generated secret is returned **once** and
+cannot be retrieved afterward.
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `label` | string | Yes | Human-readable label for the key (1-64 characters) |
+| `permissions` | string[] | No | Permission scopes. Default: `["read", "trade"]` |
+
+**Response:**
+```json
+{
+  "ok": true,
+  "data": {
+    "api_key": "bf_key_a1b2c3d4e5f6a1b2c3d4e5f6",
+    "api_secret": "bf_sec_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  }
+}
+```
+
+:::{warning}
+The `api_secret` is shown once only — store it securely. It is not retrievable
+afterward.
+:::
+
+**Errors:**
+- 400: "Label must be 1-64 characters"
+- 400: "Maximum 3 active API keys allowed"
+
+### List API Keys
+
+`POST /user?request_type=api_key_list`
+
+Lists all Developer API keys (active and revoked) for the authenticated user.
+No body required.
+
+**Response:**
+```json
+{
+  "ok": true,
+  "data": {
+    "keys": [
+      {
+        "api_key": "bf_key_a1b2c3d4e5f6a1b2c3d4e5f6",
+        "label": "Trading Bot",
+        "permissions": ["read", "trade"],
+        "created_at": 1720000000,
+        "active": true
+      }
+    ],
+    "max_keys": 3
+  }
+}
+```
+
+### Revoke API Key
+
+`POST /user?request_type=api_key_revoke`
+
+Revokes a Developer API key (soft-delete, sets `active = false`). Revoked keys
+can no longer authenticate API requests.
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `api_key_id` | string | Yes | The API key ID to revoke |
+
+**Response:**
+```json
+{"ok": true, "data": {"revoked": true}}
+```
+
+**Errors:**
+- 400: "api_key_id required"
+- 403: "Key not found or not owned by user"
+
+### Authentication Flow (Developer API Keys)
+
+API consumers authenticate using `X-API-Key` and `X-API-Secret` headers:
+
+1. Backend looks up the key in the `BeyinFinanceApiKeys` table.
+2. If found and active: verifies `SHA-256(X-API-Secret) == stored hash`.
+3. If not found: falls back to legacy `api_key_id-index` GSI on
+   BeyinFinanceUsers (backwards compatible).
+4. If found but revoked (`active = false`): request is rejected with HTTP 401.
+
+:::{note}
+Legacy single-key authentication via the `api_key_id-index` GSI on
+BeyinFinanceUsers remains functional for backwards compatibility. Existing
+integrations using the original single-key system continue to work without
+modification.
+:::
+
+**Limits:** Maximum 3 active Developer API keys per user.
+
+---
+
 ## Economic News
 
 ### Get Economic News
@@ -600,7 +705,7 @@ IDs return 404.
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `strategy_name` | string | Yes | Unique, lowercase alphanumeric, min 4 chars, at least 1 letter (`^[a-z0-9]+$`) |
+| `strategy_name` | string | Yes | Unique, lowercase alphanumeric, no spaces, min 4 chars, max 20 chars, at least 1 letter (`^[a-z0-9]+$`) |
 | `market_type` | string | Yes | `"spot"` or `"futures"` |
 | `signal_mode` | string | Yes | `"signal_orders"` or `"signal_only"` |
 | `timeframe` | string | Yes | `1m,3m,5m,15m,30m,1h,2h,4h,1d` |
@@ -624,7 +729,7 @@ Strategies are always created as private. Use `strategy_visibility` to make publ
 {"ok": true, "data": {"strategy_name": "emacross", "version": 1, "signal_mode": "signal_orders", "status": "generating", "cost_upfront": 0.05, "cost_on_success": 0.15}}
 ```
 
-**Errors:** 400 name too short (min 4), 400 invalid characters, 400 must contain letter, 402 insufficient credits, 409 name taken.
+**Errors:** 400 if strategy_name is invalid (too short, too long, contains invalid characters, or already taken); 402 if insufficient credits; 409 if name already taken by another user.
 
 ### Get Strategy Detail
 
