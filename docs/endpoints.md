@@ -525,6 +525,59 @@ Mark every unread notification:
 Exactly one of `notification_id` or `all=true` is required. Unknown notification
 IDs return 404.
 
+### List Referred Users
+
+`POST /user?request_type=referral_list`
+
+No body required. Returns the users who registered using the caller's Beyin ID
+as their reference code, newest first. Referred users' IDs are **masked**
+(first two and last two characters visible) — full IDs are never exposed.
+
+**Response:**
+```json
+{
+  "ok": true,
+  "data": {
+    "referrals": [
+      {
+        "beyin_id_masked": "AB**23",
+        "joined_at": 1784900000,
+        "plan": "starter"
+      }
+    ],
+    "count": 1
+  }
+}
+```
+
+`joined_at` is a Unix timestamp in seconds. `plan` is the referred user's
+current plan identifier (`free` when no paid plan is active).
+
+### Redeem Referral Commission
+
+`POST /user?request_type=referral_redeem`
+
+Converts available (unredeemed) referral commission into Beyin Credits or a
+pending USDT withdrawal request.
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `redeem_type` | string | Yes | `credits` (instant) or `withdrawal` (pending review) |
+| `amount` | number | Yes | USDT amount, minimum 1, at most the available balance |
+
+**Response (credits):**
+```json
+{"ok": true, "data": {"redeem_type": "credits", "amount": 5.0, "status": "completed"}}
+```
+
+**Response (withdrawal):**
+```json
+{"ok": true, "data": {"redeem_type": "withdrawal", "amount": 5.0, "status": "pending"}}
+```
+
+Requesting more than the available commission balance returns HTTP 400 with
+`Insufficient commission balance`.
+
 ---
 
 ## Developer API Key Management
@@ -712,6 +765,7 @@ modification.
 | `entry_condition` | string | Yes | Entry condition in natural language |
 | `tp_condition` | string | Yes* | Take profit (*required for signal_orders) |
 | `sl_condition` | string | Yes* | Stop loss (*required for signal_orders) |
+| `position_side` | string | Conditional | `"long"` or `"short"`. Required when `market_type` is `"futures"` AND `signal_mode` is `"signal_orders"`. Ignored otherwise. Determines signal direction for futures strategies. |
 
 :::{note}
 Strategies are always created as private. Use `strategy_visibility` to make public after a successful full_range backtest.
@@ -729,7 +783,7 @@ Strategies are always created as private. Use `strategy_visibility` to make publ
 {"ok": true, "data": {"strategy_name": "emacross", "version": 1, "signal_mode": "signal_orders", "status": "generating", "cost_upfront": 0.05, "cost_on_success": 0.15}}
 ```
 
-**Errors:** 400 if strategy_name is invalid (too short, too long, contains invalid characters, or already taken); 402 if insufficient credits; 409 if name already taken by another user.
+**Errors:** 400 if strategy_name is invalid (too short, too long, contains invalid characters, or already taken); 400 if `position_side` is required but missing (`"position_side is required for futures signal_orders strategies"`); 400 if `position_side` value is invalid (`"position_side must be 'long' or 'short'"`); 402 if insufficient credits; 409 if name already taken by another user.
 
 ### Get Strategy Detail
 
@@ -1006,6 +1060,71 @@ Each coin runs as a separate chunk. Required for `marketplace_publish` with `sig
 ```json
 {"action": "full_range", "job_id": "1784936800_fr_abc", "coins": ["BTC", "ETH", "SOL"], "chunks": 3, "cost_credits": 0.15, "remaining_credits": 7.20, "status": "dispatched", "poll_actions": {"status": "?action=status&job_id=1784936800_fr_abc", "result": "?action=result&job_id=1784936800_fr_abc"}}
 ```
+
+### Launch Portfolio Backtest
+
+`POST /backtest?action=portfolio`
+
+Simulates all selected coins against **one shared balance**. The balance is
+split into `divide` position slots: each position uses
+`current balance / divide`, at most `divide` positions are open at once, and
+at most one position per coin at a time. Signals that arrive with no free
+slot are skipped (and counted). Commission and per-coin spread are applied
+exactly as in single-coin runs.
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `strategy_name` | string | Yes | |
+| `coins` | string[] | Yes | 2–50 coins |
+| `timeframe` | string | Yes | |
+| `divide` | integer | No | 1–20; default = number of coins (capped at 20) |
+| `initial_balance` | number | No | Default 100 |
+| `commission` | number | No | Percent, default 0.2 |
+| `start_ts` / `end_ts` | integer | No | Unix seconds; omitted = full history. Each coin is clipped to its own available range |
+
+**Example body:**
+```json
+{"strategy_name": "emacross", "coins": ["BTC", "ETH", "SOL"], "timeframe": "4h", "divide": 3, "initial_balance": 100}
+```
+
+**Response:**
+```json
+{"action": "portfolio", "job_id": "pf_1784936800_ab12cd", "coins": ["BTC", "ETH", "SOL"], "divide": 3, "initial_balance": 100, "chunks": 3, "cost_credits": 0.25, "status": "dispatched", "poll_actions": {"status": "?action=status&job_id=pf_1784936800_ab12cd", "result": "?action=result&job_id=pf_1784936800_ab12cd"}}
+```
+
+The portfolio result (fetched with `action=result`) contains, in addition to
+the standard summary fields: `initial_balance`, `final_balance`, `buy_count`,
+`sell_count`, `avg_stop_loss_pct`, `avg_target_pct`, `skipped_no_slot`,
+`skipped_coin_busy`, `max_concurrent_positions`; plus top-level
+`coin_results` (per-coin summaries), `per_coin_contribution` (dollar PnL by
+coin), `trades` (coin-tagged, first 500, `trades_truncated` flag) and
+`recommended_divide`:
+
+```json
+"recommended_divide": {
+  "divide": 5, "final_balance": 214.2, "total_return_pct": 114.2,
+  "max_drawdown_pct": 18.3, "max_concurrent_signals": 9,
+  "candidates": [{"divide": 1, "total_return_pct": 80.1, "max_drawdown_pct": 31.0, "final_balance": 180.1, "total_trades": 42, "skipped_no_slot": 12}],
+  "method": "return_dd_score"
+}
+```
+
+The recommendation simulates a fixed candidate set of divide values over the
+same signal timeline and picks the one maximizing
+`final_balance × (1 − max_drawdown/200)` — return lightly penalized by
+drawdown.
+
+### Get Per-Coin Portfolio Result
+
+`POST /backtest?action=coin_result`
+
+Returns the standalone backtest result of a single coin inside a completed
+portfolio job (same shape as a single-coin result: `summary`, `trades`).
+
+| Field | Type | Required |
+|-------|------|----------|
+| `job_id` | string | Yes |
+| `coin` | string | Yes |
 
 ### Poll Status
 

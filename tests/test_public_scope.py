@@ -20,6 +20,9 @@ class PublicReferenceScopeTests(unittest.TestCase):
     PUBLIC_USER_OPERATIONS = {
         "account_info",
         "active_signals",
+        "api_key_generate",
+        "api_key_list",
+        "api_key_revoke",
         "available_coins",
         "backtest_history",
         "binance_balance",
@@ -50,6 +53,8 @@ class PublicReferenceScopeTests(unittest.TestCase):
         "notifications_list",
         "notifications_mark_read",
         "order_history",
+        "referral_list",
+        "referral_redeem",
         "signal_history",
         "strategy_delete",
         "strategy_detail",
@@ -60,8 +65,10 @@ class PublicReferenceScopeTests(unittest.TestCase):
         "strategy_visibility",
     }
     PUBLIC_BACKTEST_ACTIONS = {
+        "coin_result",
         "delete_backtest",
         "estimate",
+        "portfolio",
         "full_range",
         "info",
         "list_timeframes",
