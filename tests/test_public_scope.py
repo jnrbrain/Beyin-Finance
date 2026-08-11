@@ -81,14 +81,18 @@ class PublicReferenceScopeTests(unittest.TestCase):
         "community_leaders",
         "community_posts",
         "market_quote",
+        "market_ticker",
         "marketplace_browse",
         "marketplace_listing",
         "marketplace_reviews",
         "platform_notifications",
+        "track_signal",
+        "tracked_signals",
         "trend_indicator",
         "trend_indicator_history",
         "trend_signal_detail",
         "trend_signals",
+        "untrack_signal",
     }
 
     def test_published_operations_exactly_match_public_allowlist(self):
@@ -112,11 +116,31 @@ class PublicReferenceScopeTests(unittest.TestCase):
         )
         self.assertEqual(backtest_actions, self.PUBLIC_BACKTEST_ACTIONS)
 
-    def test_unavailable_routes_are_not_advertised(self):
-        self.assertNotIn(
+    def test_market_ticker_contract_uses_beyin_api(self):
+        self.assertIn(
             "GET /tradingdata?request_type=market_ticker",
             PUBLISHED_SOURCE,
         )
+        self.assertIn(
+            "they must not call exchange ticker endpoints directly",
+            PUBLISHED_SOURCE,
+        )
+
+    def test_telegram_bot_scope_is_documented(self):
+        self.assertIn("### Telegram Bot Scope", PUBLISHED_SOURCE)
+        self.assertIn(
+            "The Telegram bot is an account handoff and notification channel.",
+            PUBLISHED_SOURCE,
+        )
+        self.assertIn("It is not a separate market-data source", PUBLISHED_SOURCE)
+
+    def test_strategy_names_are_user_scoped_and_marketplace_suffixed(self):
+        self.assertIn(
+            "Unique only within the authenticated user's account",
+            ENDPOINTS,
+        )
+        self.assertIn("test1_ABC123", ENDPOINTS)
+        self.assertIn("create their own local `test1` strategy", ENDPOINTS)
 
     def test_public_docs_do_not_expose_internal_system_details(self):
         forbidden_terms = [

@@ -28,6 +28,14 @@ A missing or invalid credential returns HTTP 401. Every `/tradingdata`, `/user`,
 and `/backtest` operation in this reference requires a tracked caller identity
 unless the endpoint is explicitly part of login or registration.
 
+### Telegram Bot Scope
+
+The Telegram bot is an account handoff and notification channel. It can create
+or link a Beyin Finance account, show account and plan information, deliver
+signals, manage signal automation preferences, and guide manually confirmed
+Binance order actions. It is not a separate market-data source, and clients must
+still use the Beyin Finance API endpoints documented here.
+
 ### Request correlation
 
 Clients may send a unique `X-Correlation-ID` header for every logical API
@@ -758,7 +766,7 @@ modification.
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `strategy_name` | string | Yes | Unique, lowercase alphanumeric, no spaces, min 4 chars, max 20 chars, at least 1 letter (`^[a-z0-9]+$`) |
+| `strategy_name` | string | Yes | Unique only within the authenticated user's account; lowercase alphanumeric, no spaces, min 4 chars, max 20 chars, at least 1 letter (`^[a-z0-9]+$`) |
 | `market_type` | string | Yes | `"spot"` or `"futures"` |
 | `signal_mode` | string | Yes | `"signal_orders"` or `"signal_only"` |
 | `timeframe` | string | Yes | `1m,3m,5m,15m,30m,1h,2h,4h,1d` |
@@ -783,7 +791,7 @@ Strategies are always created as private. Use `strategy_visibility` to make publ
 {"ok": true, "data": {"strategy_name": "emacross", "version": 1, "signal_mode": "signal_orders", "status": "generating", "cost_upfront": 0.05, "cost_on_success": 0.15}}
 ```
 
-**Errors:** 400 if strategy_name is invalid (too short, too long, contains invalid characters, or already taken); 400 if `position_side` is required but missing (`"position_side is required for futures signal_orders strategies"`); 400 if `position_side` value is invalid (`"position_side must be 'long' or 'short'"`); 402 if insufficient credits; 409 if name already taken by another user.
+**Errors:** 400 if strategy_name is invalid (too short, too long, or contains invalid characters); 400 if `position_side` is required but missing (`"position_side is required for futures signal_orders strategies"`); 400 if `position_side` value is invalid (`"position_side must be 'long' or 'short'"`); 402 if insufficient credits; 409 if the authenticated user already has a strategy with the same name.
 
 ### Get Strategy Detail
 
@@ -1449,6 +1457,11 @@ page. Malformed cursors and non-integer page sizes return HTTP 400.
 Requirements for `signal_mode=signal_orders`: Must have a successful `full_range` backtest. Only coins with positive PnL and at least 10 trades are listed. Others are rejected.
 :::
 
+Marketplace listing names are globally disambiguated by appending the creator's
+Beyin ID to the user's local strategy name. For example, a local strategy named
+`test1` owned by `ABC123` is listed as `test1_ABC123`. Other users may still
+create their own local `test1` strategy.
+
 **Example body:**
 ```json
 {"strategy_key": "emacross", "description": "EMA crossover for BTC", "credits_per_signal": 0.5, "signal_mode": "signal_orders", "requested_coins": ["BTC", "ETH", "SOL"]}
@@ -1456,7 +1469,7 @@ Requirements for `signal_mode=signal_orders`: Must have a successful `full_range
 
 **Response:**
 ```json
-{"ok": true, "data": {"listing_id": "lst_abc123", "status": "active", "listed_coins": ["BTC", "ETH"], "rejected_coins": {"SOL": "negative_pnl", "DOGE": "insufficient_trades"}, "credits_per_signal": 0.5, "signal_mode": "signal_orders", "backtest_summary": {"BTC": {"pnl_pct": 12.5, "win_rate": 68.0, "trades": 42}}}}
+{"ok": true, "data": {"listing_id": "lst_abc123", "strategy_name": "emacross_ABC123", "display_strategy_name": "emacross", "status": "active", "listed_coins": ["BTC", "ETH"], "rejected_coins": {"SOL": "negative_pnl", "DOGE": "insufficient_trades"}, "credits_per_signal": 0.5, "signal_mode": "signal_orders", "backtest_summary": {"BTC": {"pnl_pct": 12.5, "win_rate": 68.0, "trades": 42}}}}
 ```
 
 **Errors:** 400 no full_range backtest found, 400 no profitable coins.
@@ -1597,6 +1610,52 @@ stops it at the break candle.
 detail response intended for the Trend Break history UI must include the full
 signal snapshot returned by the API. Storage-only fields and internal links are
 not part of the public response contract.
+
+### Market Ticker
+
+`GET /tradingdata?request_type=market_ticker&market=spot&page=0&limit=500`
+
+Returns the market list used by the official app. Clients must call this Beyin
+Finance API endpoint; they must not call exchange ticker endpoints directly.
+The API filters ticker rows through server-maintained exchange metadata so only
+symbols currently enabled for trading in the selected market are returned.
+
+Price and quantity precision metadata may exist server-side for symbols that
+are not currently trading, but those symbols are excluded from this ticker
+catalog until they become trading-enabled again.
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `market` | string | No | `spot` or `futures` (default `spot`) |
+| `page` | number | No | Page number (default 0) |
+| `limit` | number | No | Items per page (default 500, max 1000) |
+| `query` | string | No | Alphanumeric symbol search, e.g. `BTC` |
+| `favorites` | string | No | Comma-separated USDT symbols prioritized first |
+
+**Response:**
+```json
+{
+  "items": [
+    {
+      "symbol": "BTCUSDT",
+      "last_price": "67200.10",
+      "change_percent_24h": "1.25",
+      "quote_volume_24h": "123456789.0",
+      "market_type": "spot",
+      "price_precision": 2,
+      "favorite": false
+    }
+  ],
+  "page": 0,
+  "count": 1,
+  "total": 420,
+  "last_page": false
+}
+```
+
+If live exchange ticker data is temporarily unavailable, the API may return a
+recent verified cache and include `_cache.stale=true`. Clients should show a
+stale-data warning when `_cache` is present.
 
 ### Market Quote
 
@@ -1983,3 +2042,88 @@ provided it estimates a single-coin `run`, clips the timestamps to available
 data, and returns the range candle count and standard run cost. Supplying only
 one timestamp, an inverted range, or multiple coins in range mode returns 400.
 The response includes `mode`, either `full_range` or `range`.
+
+---
+
+## Trend Signal Tracking
+
+Track trend break signals to your personal watchlist. Tracked signals are preserved (do not expire via TTL) as long as at least one user is tracking them.
+
+### Track Signal
+
+`GET /tradingdata?request_type=track_signal`
+
+Adds the authenticated user to a signal's tracking list and removes the signal's TTL (preventing automatic expiration).
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `coin_name` | string | Yes | Coin symbol (e.g. `"BTC"`) |
+| `graph_type` | string | Yes | Timeframe in minutes (e.g. `"240"`) |
+| `way` | string | Yes | Signal direction: `"BUY"` or `"SELL"` |
+| `timestamp` | string | Yes | Signal epoch timestamp in seconds |
+
+**Response:**
+```json
+{"tracked": true}
+```
+
+**Errors:**
+- 400: Missing required fields
+- 401: Authentication required
+- 404: Signal not found (expired or never existed)
+
+### Untrack Signal
+
+`GET /tradingdata?request_type=untrack_signal`
+
+Removes the authenticated user from a signal's tracking list. If no users remain tracking the signal, the TTL is re-applied and the signal will eventually expire.
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `coin_name` | string | Yes | Coin symbol |
+| `graph_type` | string | Yes | Timeframe in minutes |
+| `way` | string | Yes | Signal direction |
+| `timestamp` | string | Yes | Signal epoch timestamp |
+
+**Response:**
+```json
+{"tracked": false}
+```
+
+**Errors:**
+- 400: Missing required fields
+- 401: Authentication required
+
+### Get Tracked Signals
+
+`GET /tradingdata?request_type=tracked_signals`
+
+Returns all trend signals the authenticated user is currently tracking.
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `limit` | integer | No | Max items per page (default 20, max 50) |
+| `last_key` | string | No | JSON-encoded pagination cursor from previous response |
+
+**Response:**
+```json
+{
+  "items": [
+    {
+      "coin_name": "BTC",
+      "graph_type": "240",
+      "way": "BUY",
+      "timestamp": "1720000000",
+      "is_return_to_trend": false,
+      "klines_data": [...],
+      "trend_data": {"high_trend": [...], "low_trend": [...]}
+    }
+  ],
+  "last_key": null
+}
+```
+
+Response items use the same schema as `trend_signals` — full signal data including klines and trend lines. Internal fields (`gsi_pk`, `ttl`, `telegram_link`, `tracked_users`) are stripped from the response.
+
+**Errors:**
+- 401: Authentication required
