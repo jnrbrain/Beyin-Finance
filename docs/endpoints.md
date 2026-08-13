@@ -1005,11 +1005,16 @@ request cannot be completed safely, no user-visible strategy data is removed.
 Backtest requests remain backward compatible with the original crypto fields:
 `coin` and `coins` still mean Binance-style crypto symbols such as `BTC`.
 For non-crypto datasets, send instrument metadata alongside the legacy field:
-`symbol` (for example `AAPL`, `EURUSD`, `XAUUSD`), `asset_class`
+`symbol` (for example `AAPL`, `EURUSD`, `GOLD`), `asset_class`
 (`crypto`, `stock`, `etf`, `forex`, `index`, `commodity`), `provider`,
 `market`, and optionally `exchange`. The service reads partitioned candles from
-the matching `provider/market/symbol/timeframe` dataset when present and falls
-back to the legacy `DATAS/{COIN}USDT_{TIMEFRAME}.txt` files for crypto.
+the matching `DATAS/{market}/{symbol}/{timeframe}/` dataset when present and
+falls back to the legacy `DATAS/{COIN}USDT_{TIMEFRAME}.txt` files for crypto.
+Yahoo-backed non-crypto datasets currently use simple app symbols and daily
+data: `us_stocks` (`AAPL`, `NVDA`, `TSLA`, `MSFT`, `AMZN`, `META`), `etfs`
+(`SPY`, `QQQ`), `forex` (`EURUSD`, `GBPUSD`, `USDJPY`), and `commodities`
+(`GOLD`, `SILVER`, `OIL`). Provider-specific symbols such as `GC=F` are kept
+inside the server manifest and S3 manifest metadata, not in user-facing paths.
 
 ### Estimate Cost
 
@@ -1060,7 +1065,7 @@ back to the legacy `DATAS/{COIN}USDT_{TIMEFRAME}.txt` files for crypto.
 
 **Response:**
 ```json
-{"action": "list_timeframes", "coin": "BTC", "symbol": "BTCUSDT", "timeframes": ["1m", "3m", "5m", "15m", "30m", "1h", "2h", "4h", "1d"]}
+{"action": "list_timeframes", "coin": "AAPL", "symbol": "AAPL", "instrument": {"asset_class": "stock", "provider": "yahoo", "market": "us_stocks", "symbol": "AAPL"}, "timeframes": [{"timeframe": "1d", "suffix": "1DAY", "s3_key": "DATAS/us_stocks/AAPL/1d/manifest.json"}]}
 ```
 
 ### Run Specified Range Backtest
@@ -1678,6 +1683,61 @@ symbols currently enabled for trading in the selected market are returned.
 Price and quantity precision metadata may exist server-side for symbols that
 are not currently trading, but those symbols are excluded from this ticker
 catalog until they become trading-enabled again.
+
+Instrument precision is maintained in one compact server manifest:
+`INSTRUMENTS/instrument_manifest_v1.json`. The file is grouped by market so
+repeated fields such as `asset_class`, `provider`, `exchange`, `market`, and
+`quote_asset` are stored once per market group. Each symbol only stores values
+that differ from that group's `defaults`. Backtest, trading precision checks,
+and multi-market routing use this manifest as the canonical source.
+
+Example manifest shape:
+
+```json
+{
+  "version": 1,
+  "updated_at": "2026-08-13T12:00:00Z",
+  "markets": {
+    "crypto_binance_spot_usdt": {
+      "asset_class": "crypto",
+      "provider": "binance",
+      "exchange": "BINANCE",
+      "market": "spot",
+      "quote_asset": "USDT",
+      "defaults": {},
+      "symbols": {
+        "BTC": {
+          "price_precision": 2,
+          "quantity_precision": 5,
+          "tick_size": "0.01",
+          "step_size": "0.00001",
+          "min_quantity": "0.00001",
+          "min_notional": "5"
+        }
+      }
+    },
+    "us_stocks_yahoo_us_usd": {
+      "asset_class": "stock",
+      "provider": "yahoo",
+      "exchange": "US",
+      "market": "us_stocks",
+      "quote_asset": "USD",
+      "defaults": {
+        "price_precision": 2,
+        "quantity_precision": 6,
+        "tick_size": "0.01",
+        "step_size": "0.000001",
+        "min_quantity": "0.000001",
+        "min_notional": "1"
+      },
+      "symbols": {
+        "AAPL": {"provider_symbol": "AAPL", "display_name": "Apple"},
+        "NVDA": {"provider_symbol": "NVDA", "display_name": "Nvidia"}
+      }
+    }
+  }
+}
+```
 
 | Param | Type | Required | Description |
 |-------|------|----------|-------------|
