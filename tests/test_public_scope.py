@@ -86,13 +86,13 @@ class PublicReferenceScopeTests(unittest.TestCase):
         "marketplace_listing",
         "marketplace_reviews",
         "platform_notifications",
-        "track_signal",
-        "tracked_signals",
+        "track_trend_break_signal",
+        "tracked_trend_break_signals",
         "trend_indicator",
         "trend_indicator_history",
         "trend_signal_detail",
         "trend_signals",
-        "untrack_signal",
+        "untrack_trend_break_signal",
     }
 
     def test_published_operations_exactly_match_public_allowlist(self):

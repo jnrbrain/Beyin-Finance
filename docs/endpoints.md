@@ -1,4 +1,4 @@
-﻿# Beyin Finance Developer API Reference
+# Beyin Finance Developer API Reference
 
 **Base URL:** Provided in your API credentials dashboard.
 
@@ -27,6 +27,17 @@ Generate API keys from the Telegram bot, web dashboard, or mobile app.
 A missing or invalid credential returns HTTP 401. Every `/tradingdata`, `/user`,
 and `/backtest` operation in this reference requires a tracked caller identity
 unless the endpoint is explicitly part of login or registration.
+
+A 401 caused by the session token itself carries `"code": "session_expired"` in
+the error body; a 401 caused by a rejected or revoked Developer API key carries
+`"code": "invalid_credentials"`. Not every 401 is a session problem — see the
+Errors section for the marker table and the rule for when a client should
+re-authenticate.
+
+If the Developer API key store cannot be reached, the request never reaches a
+credential decision: it returns HTTP 503 with
+`"code": "api_key_store_unavailable"`. That is an outage to retry, not a
+credential to replace.
 
 ### Telegram Bot Scope
 
@@ -625,6 +636,9 @@ afterward.
 **Errors:**
 - 400: "Label must be 1-64 characters"
 - 400: "Maximum 3 active API keys allowed"
+- 403: "api_key_generate requires JWT authentication"
+- 503: API key store unavailable (`"code": "api_key_store_unavailable"`). No key
+  was created and no secret was issued; retry the request.
 
 ### List API Keys
 
@@ -652,6 +666,9 @@ No body required.
 }
 ```
 
+**Errors:**
+- 503: API key store unavailable (`"code": "api_key_store_unavailable"`)
+
 ### Revoke API Key
 
 `POST /user?request_type=api_key_revoke`
@@ -670,7 +687,10 @@ can no longer authenticate API requests.
 
 **Errors:**
 - 400: "api_key_id required"
+- 403: "api_key_revoke requires JWT authentication"
 - 403: "Key not found or not owned by user"
+- 503: API key store unavailable (`"code": "api_key_store_unavailable"`). The key
+  was not revoked; retry the request.
 
 ### Authentication Flow (Developer API Keys)
 
@@ -680,7 +700,17 @@ API consumers authenticate using `X-API-Key` and `X-API-Secret` headers:
 2. If found and active: verifies `SHA-256(X-API-Secret) == stored hash`.
 3. If not found: falls back to legacy `api_key_id-index` GSI on
    BeyinFinanceUsers (backwards compatible).
-4. If found but revoked (`active = false`): request is rejected with HTTP 401.
+4. If found but revoked (`active = false`): request is rejected with HTTP 401
+   and `"code": "invalid_credentials"`.
+5. If the key store itself cannot answer the lookup: HTTP 503 with
+   `"code": "api_key_store_unavailable"`. Your credentials were never evaluated,
+   so this is not a reason to rotate them — retry with backoff.
+
+A rejected or revoked Developer API key never carries `session_expired`, so an
+authenticated app session remains valid. The same 503 applies on
+`/tradingdata` when `X-API-Key` / `X-API-Secret` are supplied: an unavailable
+key store is reported as an outage, never silently downgraded to a guest
+(unauthenticated) session.
 
 :::{note}
 Legacy single-key authentication via the `api_key_id-index` GSI on
@@ -969,8 +999,17 @@ request cannot be completed safely, no user-visible strategy data is removed.
 **Endpoint:** `POST /backtest?action=<action>`
 
 **Two backtest modes available:**
-- **Specified Range** (`action=run`): Test a strategy on a specific date range for a single coin.
-- **Full Range** (`action=full_range`): Test a strategy on all available data for multiple coins. Required for marketplace publishing.
+- **Specified Range** (`action=run`): Test a strategy on a specific date range for a single instrument.
+- **Full Range** (`action=full_range`): Test a strategy on all available data for multiple instruments. Required for marketplace publishing.
+
+Backtest requests remain backward compatible with the original crypto fields:
+`coin` and `coins` still mean Binance-style crypto symbols such as `BTC`.
+For non-crypto datasets, send instrument metadata alongside the legacy field:
+`symbol` (for example `AAPL`, `EURUSD`, `XAUUSD`), `asset_class`
+(`crypto`, `stock`, `etf`, `forex`, `index`, `commodity`), `provider`,
+`market`, and optionally `exchange`. The service reads partitioned candles from
+the matching `provider/market/symbol/timeframe` dataset when present and falls
+back to the legacy `DATAS/{COIN}USDT_{TIMEFRAME}.txt` files for crypto.
 
 ### Estimate Cost
 
@@ -981,25 +1020,32 @@ request cannot be completed safely, no user-visible strategy data is removed.
 | `strategy_name` | string | Yes |
 | `coins` | string[] | Yes |
 | `timeframe` | string | Yes |
+| `symbol` | string | No | Single-instrument estimate; legacy crypto callers can omit |
+| `asset_class` | string | No | Defaults to `crypto` |
+| `provider` | string | No | Defaults to `binance` |
+| `market` | string | No | Defaults to `spot` |
+| `exchange` | string | No | Optional venue label |
 
 **Response:**
 ```json
 {"action": "estimate", "total_candles": 6527547, "estimated_cost_credits": 0.35, "estimated_duration_seconds": 31, "chunks": 14, "current_credits": 7.35, "can_afford": true}
 ```
 
-### Get Coin Backtest Info
+### Get Instrument Backtest Info
 
 `POST /backtest?action=info`
 
 | Field | Type | Required |
 |-------|------|----------|
 | `strategy_name` | string | Yes |
-| `coin` | string | Yes |
+| `coin` | string | Yes* |
+| `symbol` | string | No | Required for non-crypto instruments when `coin` is only a display label |
 | `timeframe` | string | Yes |
+| `asset_class` / `provider` / `market` / `exchange` | string | No |
 
 **Response:**
 ```json
-{"action": "info", "coin": "BTC", "timeframe": "4h", "data_range": {"first_ts": 1514764800, "last_ts": 1784476800, "first_date": "2018-01-01", "last_date": "2026-07-19", "total_candles": 21837}, "strategy": {"slug": "emacross", "candle_count": 32}, "cost_preview": {"credits_if_full": 0.05}, "current_credits": 7.35}
+{"action": "info", "coin": "BTC", "symbol": "BTCUSDT", "instrument": {"asset_class": "crypto", "provider": "binance", "market": "spot", "symbol": "BTCUSDT"}, "timeframe": "4h", "data_range": {"first_ts": 1514764800, "last_ts": 1784476800, "first_date": "2018-01-01", "last_date": "2026-07-19", "total_candles": 21837}, "strategy": {"slug": "emacross", "candle_count": 32}, "cost_preview": {"credits_if_full": 0.05}, "current_credits": 7.35}
 ```
 
 ### List Available Timeframes
@@ -1008,11 +1054,13 @@ request cannot be completed safely, no user-visible strategy data is removed.
 
 | Field | Type | Required |
 |-------|------|----------|
-| `coin` | string | Yes |
+| `coin` | string | Yes* |
+| `symbol` | string | No |
+| `asset_class` / `provider` / `market` / `exchange` | string | No |
 
 **Response:**
 ```json
-{"action": "list_timeframes", "coin": "BTC", "timeframes": ["1m", "3m", "5m", "15m", "30m", "1h", "2h", "4h", "1d"]}
+{"action": "list_timeframes", "coin": "BTC", "symbol": "BTCUSDT", "timeframes": ["1m", "3m", "5m", "15m", "30m", "1h", "2h", "4h", "1d"]}
 ```
 
 ### Run Specified Range Backtest
@@ -1022,7 +1070,12 @@ request cannot be completed safely, no user-visible strategy data is removed.
 | Field | Type | Required | Default | Description |
 |-------|------|----------|---------|-------------|
 | `strategy_name` | string | Yes | | Strategy to test |
-| `coin` | string | Yes | | e.g. `"BTC"` |
+| `coin` | string | Yes* | | Backward-compatible display symbol, e.g. `"BTC"` |
+| `symbol` | string | No | | Tradable/data symbol, e.g. `"BTCUSDT"`, `"AAPL"`, `"EURUSD"` |
+| `asset_class` | string | No | `crypto` | `crypto`, `stock`, `etf`, `forex`, `index`, `commodity` |
+| `provider` | string | No | `binance` | Data provider namespace |
+| `market` | string | No | `spot` | Dataset market namespace |
+| `exchange` | string | No | provider | Venue label |
 | `timeframe` | string | Yes | | e.g. `"4h"` |
 | `start_ts` | number | Yes | | Start unix timestamp |
 | `end_ts` | number | Yes | | End unix timestamp |
@@ -1037,7 +1090,7 @@ request cannot be completed safely, no user-visible strategy data is removed.
 | `signal_filter_mode` | string | No | `"clamp"` | `"clamp"` (adjust to limits) or `"reject"` (skip signal) |
 
 **Notes:**
-- **Spread** is automatically determined by coin volume tier: High volume (BTC, ETH, SOL...) = 0%, Mid volume = 0.1%, Low volume = 0.2%. Not user-configurable.
+- **Spread** is automatically determined by crypto coin volume tier for legacy Binance crypto. Non-crypto datasets currently use the default low-volume fallback unless the backend is extended with asset-class-specific spread rules.
 - **signal_filter_mode = "clamp"** (default): If strategy TP exceeds `max_profit_pct`, it's clamped to max. If SL exceeds `max_loss_pct`, clamped to max. Signals below `min_profit_pct` are always skipped.
 - **signal_filter_mode = "reject"**: Signals that exceed any min/max limit are completely skipped.
 - **min/max profit/loss** values are passed to the strategy function as ratio parameters (`min_profit_ratio`, `max_profit_ratio`, `max_loss_ratio`, `min_loss_ratio`) for TP/SL price calculation.
@@ -1056,8 +1109,9 @@ request cannot be completed safely, no user-visible strategy data is removed.
 | `strategy_name` | string | Yes |
 | `coins` | string[] | Yes |
 | `timeframe` | string | Yes |
+| `asset_class` / `provider` / `market` / `exchange` | string | No |
 
-Each coin runs as a separate chunk. Required for `marketplace_publish` with `signal_mode=signal_orders`.
+Each requested instrument runs as a separate chunk. Required for `marketplace_publish` with `signal_mode=signal_orders`.
 
 **Example body:**
 ```json
@@ -1083,7 +1137,8 @@ exactly as in single-coin runs.
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `strategy_name` | string | Yes | |
-| `coins` | string[] | Yes | 2–50 coins |
+| `coins` | string[] | Yes | 2–50 legacy coin/instrument labels |
+| `asset_class` / `provider` / `market` / `exchange` | string | No | Shared dataset namespace for the selected instruments |
 | `timeframe` | string | Yes | |
 | `divide` | integer | No | 1–20; default = number of coins (capped at 20) |
 | `initial_balance` | number | No | Default 100 |
@@ -1966,11 +2021,11 @@ Return the opaque cursor unchanged; malformed cursors return HTTP 400.
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `display_name` | string | Yes | Leader Display Name (3-30 Latin alphanumeric chars or spaces, e.g. `"FX Analiz"`) |
+| `display_name` | string | Yes | Leader Display Name (3-30 Latin alphanumeric chars or spaces, e.g. `"Finans Kulubu"`) |
 | `reason` | string | Yes | Reason for application (max 1000 chars) |
 | `experience` | string | Yes | Trading experience details (max 2000 chars) |
 
-The system automatically generates a unique lowercase nickname by removing spaces from `display_name` (e.g. `"FX Analiz"` -> `"fxanaliz"`). Returns 409 Conflict if nickname is already taken by another user.
+The system automatically generates a unique lowercase nickname by removing spaces from `display_name` (e.g. `"Finans Kulubu"` -> `"finanskulubu"`). Returns 409 Conflict if nickname is already taken by another user.
 
 **Response:**
 ```json
@@ -1978,8 +2033,8 @@ The system automatically generates a unique lowercase nickname by removing space
   "ok": true,
   "data": {
     "status": "pending",
-    "display_name": "FX Analiz",
-    "nickname": "fxanaliz",
+    "display_name": "Finans Kulubu",
+    "nickname": "finanskulubu",
     "message": "Application submitted. We will review and notify you."
   }
 }
@@ -2002,8 +2057,8 @@ Only accessible by users with approved `"leader"` community role.
 {
   "ok": true,
   "data": {
-    "display_name": "FX Analiz Pro",
-    "nickname": "fxanalizpro",
+    "display_name": "Finans Kulubu Pro",
+    "nickname": "finanskulubupro",
     "community_bio": "Crypto & Forex specialist",
     "avatar_url": "https://..."
   }
@@ -2020,10 +2075,16 @@ All errors return:
 {"error": "Descriptive error message"}
 ```
 
+Authentication-related errors add an optional machine-readable `code` marker.
+The rest of the body shape is unchanged:
+```json
+{"error": "Invalid JWT token!", "code": "session_expired"}
+```
+
 | Code | Meaning |
 |------|---------|
 | 400 | Bad request / validation error |
-| 401 | Invalid credentials / not registered |
+| 401 | Credential rejected, revoked, or session token expired |
 | 402 | Insufficient credits |
 | 403 | Forbidden / license expired |
 | 404 | Not found |
@@ -2031,6 +2092,54 @@ All errors return:
 | 409 | Conflict (duplicate) |
 | 429 | Rate limited |
 | 500 | Server error |
+| 502 | Upstream exchange did not return a usable response |
+| 503 | A backing store the request needs is temporarily unavailable |
+
+### Error `code` markers
+
+`code` is optional. When present it identifies the class of authentication
+failure so clients can react without parsing the message text.
+
+| `code` | Meaning | Client action |
+|--------|---------|---------------|
+| `session_expired` | The session token itself was missing, invalid, or expired. | Clear the stored session and re-authenticate. |
+| `invalid_credentials` | The Developer API key/secret was rejected or has been revoked. | Issue new API credentials. An authenticated app session is unaffected. |
+| `api_key_store_unavailable` | The Developer API key store could not be reached, so no credential was evaluated. Always paired with HTTP 503. | Retry with backoff. Do not rotate credentials and do not clear the session. |
+
+`api_key_store_unavailable` is the answer for a missing dependency, not a
+rejected credential: it is never a 401 and never a bare 500. It applies to
+`api_key_generate`, `api_key_list`, `api_key_revoke`, `X-API-Key` /
+`X-API-Secret` authentication on `/user`, and the same header pair on
+`/tradingdata`. The response body stays generic — no table, resource, or
+internal error detail is exposed.
+
+`session_expired` is returned for a missing, malformed, or expired session
+token, for a missing caller identity, and for every operation that rejects an
+unauthenticated caller on `/user` and `/tradingdata`. The dedicated
+`token_expired` response carries it as well:
+
+```json
+{"error": "token_expired", "code": "session_expired", "message": "Your session has expired. Please log in again."}
+```
+
+**Clients must clear the local session and re-authenticate only when a 401
+carries `"code": "session_expired"`.** A 401 without a `code` field is a
+business error, not a session problem, and must not sign the user out.
+
+### Account linking and login status codes
+
+These conditions previously returned HTTP 401. They now return a
+condition-specific status, so a client no longer mistakes them for an expired
+session:
+
+| Condition | Status |
+|------|---------|
+| Binance API key or secret is not exactly 64 characters (`"Invalid API or Secret key"`) | 400 |
+| Binance returned no account ID while linking (`"Could not retrieve Binance ID from API"`) | 502 |
+| Login with a Binance identity that is not registered (`"Binance ID not found!"`) | 400 |
+| Login where the supplied Google identity does not match the stored one (`"Google ID mismatch!"`) | 409 |
+
+None of these responses carry a `code` marker.
 
 
 ### Backtest estimate modes
@@ -2045,13 +2154,18 @@ The response includes `mode`, either `full_range` or `range`.
 
 ---
 
-## Trend Signal Tracking
+## Track Trend Break Signal
 
 Track trend break signals to your personal watchlist. Tracked signals are preserved (do not expire via TTL) as long as at least one user is tracking them.
 
-### Track Signal
+:::{note}
+The previously published `track_signal`, `untrack_signal` and `tracked_signals`
+names have been removed and now return 405. Use the canonical names below.
+:::
 
-`GET /tradingdata?request_type=track_signal`
+### Track a Trend Break Signal
+
+`GET /tradingdata?request_type=track_trend_break_signal`
 
 Adds the authenticated user to a signal's tracking list and removes the signal's TTL (preventing automatic expiration).
 
@@ -2069,12 +2183,12 @@ Adds the authenticated user to a signal's tracking list and removes the signal's
 
 **Errors:**
 - 400: Missing required fields
-- 401: Authentication required
+- 401: Authentication required (`"code": "session_expired"`)
 - 404: Signal not found (expired or never existed)
 
-### Untrack Signal
+### Untrack a Trend Break Signal
 
-`GET /tradingdata?request_type=untrack_signal`
+`GET /tradingdata?request_type=untrack_trend_break_signal`
 
 Removes the authenticated user from a signal's tracking list. If no users remain tracking the signal, the TTL is re-applied and the signal will eventually expire.
 
@@ -2092,13 +2206,13 @@ Removes the authenticated user from a signal's tracking list. If no users remain
 
 **Errors:**
 - 400: Missing required fields
-- 401: Authentication required
+- 401: Authentication required (`"code": "session_expired"`)
 
-### Get Tracked Signals
+### Get Tracked Trend Break Signals
 
-`GET /tradingdata?request_type=tracked_signals`
+`GET /tradingdata?request_type=tracked_trend_break_signals`
 
-Returns all trend signals the authenticated user is currently tracking.
+Returns all trend break signals the authenticated user is currently tracking.
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
@@ -2106,7 +2220,7 @@ Returns all trend signals the authenticated user is currently tracking.
 | `last_key` | string | No | JSON-encoded pagination cursor from previous response |
 
 **Response:**
-```json
+```text
 {
   "items": [
     {
@@ -2126,4 +2240,4 @@ Returns all trend signals the authenticated user is currently tracking.
 Response items use the same schema as `trend_signals` — full signal data including klines and trend lines. Internal fields (`gsi_pk`, `ttl`, `telegram_link`, `tracked_users`) are stripped from the response.
 
 **Errors:**
-- 401: Authentication required
+- 401: Authentication required (`"code": "session_expired"`)
