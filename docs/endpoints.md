@@ -1008,7 +1008,7 @@ For non-crypto datasets, send instrument metadata alongside the legacy field:
 `symbol` (for example `AAPL`, `EURUSD`, `GOLD`), `asset_class`
 (`crypto`, `stock`, `etf`, `forex`, `index`, `commodity`), `provider`,
 `market`, and optionally `exchange`. The service reads partitioned candles from
-the matching `DATAS/{market}/{symbol}/{timeframe}/` dataset when present and
+the matching `DATAS/{asset_class}/{market}/{symbol}/{timeframe}/ for crypto and DATAS/{market}/{symbol}/{timeframe}/ for non-crypto` dataset when present and
 falls back to the legacy `DATAS/{COIN}USDT_{TIMEFRAME}.txt` files for crypto.
 Yahoo-backed non-crypto datasets currently use simple app symbols and daily
 data: `us_stocks` (`AAPL`, `NVDA`, `TSLA`, `MSFT`, `AMZN`, `META`), `etfs`
