@@ -28,6 +28,14 @@ A missing or invalid credential returns HTTP 401. Every `/tradingdata`, `/user`,
 and `/backtest` operation in this reference requires a tracked caller identity
 unless the endpoint is explicitly part of login or registration.
 
+> **Note:** Some Trading Data endpoints allow unauthenticated (guest) access
+> with stricter IP-based rate limits. Guest-accessible endpoints include:
+> `trend_signals`, `trend_signal_detail`, `trend_indicator`,
+> `trend_indicator_history`, `market_ticker`, `get_klines`, `market_quote`,
+> `market_symbol_info`, `platform_notifications`, `community_posts`,
+> `community_chat`, `community_leaders`, `marketplace_browse`,
+> `marketplace_listing`, and `marketplace_reviews`.
+
 A 401 caused by the session token itself carries `"code": "session_expired"` in
 the error body; a 401 caused by a rejected or revoked Developer API key carries
 `"code": "invalid_credentials"`. Not every 401 is a session problem — see the
