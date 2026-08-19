@@ -602,8 +602,66 @@ pending USDT withdrawal request.
 {"ok": true, "data": {"redeem_type": "withdrawal", "amount": 5.0, "status": "pending"}}
 ```
 
-Requesting more than the available commission balance returns HTTP 400 with
-`Insufficient commission balance`.
+### Set Inviter / Referral ID
+
+`POST /user?request_type=set_inviter`
+
+Sets the 6-character Beyin ID of the user who invited the caller. This endpoint is only available if no referral ID has been set previously and the user registered within the last 30 days.
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `inviter_id` | string | Yes | 6-character uppercase alphanumeric Beyin ID of the inviter |
+
+**Validation Rules:**
+- Must be a valid 6-character alphanumeric code (`^[A-Z0-9]{6}$`).
+- Cannot be the caller's own Beyin ID.
+- Cannot be changed once set.
+- Must be submitted within 30 days of the user's registration timestamp (`registered_at`).
+- The inviter Beyin ID must exist in the system.
+
+**Response:**
+```json
+{
+  "ok": true,
+  "data": {
+    "inviter_id": "ABC123",
+    "message": "Inviter ID set successfully"
+  },
+  "timestamp": 1787098000
+}
+```
+
+---
+
+## User Preferences & Favorites
+
+### Update Favorite Coins
+
+`POST /user?request_type=favorite_coin`
+
+Adds or removes a cryptocurrency trading pair from the user's synced favorites list stored in their profile.
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `symbol` | string | Yes | Asset pair symbol, e.g. `BTCUSDT` |
+| `action` | string | No | `add` (default) or `remove` |
+
+**Validation Rules:**
+- `symbol` is required and automatically converted to uppercase.
+- Maximum 100 favorite coins allowed per user profile.
+
+**Response:**
+```json
+{
+  "ok": true,
+  "data": {
+    "symbol": "BTCUSDT",
+    "action": "add",
+    "favorites": ["BTCUSDT", "ETHUSDT", "SOLUSDT"]
+  },
+  "timestamp": 1787098000
+}
+```
 
 ---
 
@@ -643,7 +701,7 @@ afterward.
 
 **Errors:**
 - 400: "Label must be 1-64 characters"
-- 400: "Maximum 3 active API keys allowed"
+- 400: "Maximum 3 API keys allowed. Delete an existing key first."
 - 403: "api_key_generate requires JWT authentication"
 - 503: API key store unavailable (`"code": "api_key_store_unavailable"`). No key
   was created and no secret was issued; retry the request.
@@ -652,8 +710,8 @@ afterward.
 
 `POST /user?request_type=api_key_list`
 
-Lists all Developer API keys (active and revoked) for the authenticated user.
-No body required.
+Lists your Developer API keys. Revoked keys are deleted, so every key returned
+here is usable. No body required.
 
 **Response:**
 ```json
@@ -665,8 +723,7 @@ No body required.
         "api_key": "bf_key_a1b2c3d4e5f6a1b2c3d4e5f6",
         "label": "Trading Bot",
         "permissions": ["read", "trade"],
-        "created_at": 1720000000,
-        "active": true
+        "created_at": 1720000000
       }
     ],
     "max_keys": 3
@@ -681,8 +738,9 @@ No body required.
 
 `POST /user?request_type=api_key_revoke`
 
-Revokes a Developer API key (soft-delete, sets `active = false`). Revoked keys
-can no longer authenticate API requests.
+Revokes a Developer API key. The key record is deleted permanently, so it
+disappears from `api_key_list` and immediately frees one of your three slots.
+Revocation cannot be undone — issue a new key with `api_key_generate`.
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
@@ -690,7 +748,7 @@ can no longer authenticate API requests.
 
 **Response:**
 ```json
-{"ok": true, "data": {"revoked": true}}
+{"ok": true, "data": {"deleted": true}}
 ```
 
 **Errors:**
@@ -698,18 +756,19 @@ can no longer authenticate API requests.
 - 403: "api_key_revoke requires JWT authentication"
 - 403: "Key not found or not owned by user"
 - 503: API key store unavailable (`"code": "api_key_store_unavailable"`). The key
-  was not revoked; retry the request.
+  was not deleted and still authenticates; retry the request.
 
 ### Authentication Flow (Developer API Keys)
 
 API consumers authenticate using `X-API-Key` and `X-API-Secret` headers:
 
 1. Backend looks up the key in the `BeyinFinanceApiKeys` table.
-2. If found and active: verifies `SHA-256(X-API-Secret) == stored hash`.
+2. If found: verifies `SHA-256(X-API-Secret) == stored hash`.
 3. If not found: falls back to legacy `api_key_id-index` GSI on
    BeyinFinanceUsers (backwards compatible).
-4. If found but revoked (`active = false`): request is rejected with HTTP 401
-   and `"code": "invalid_credentials"`.
+4. If the key was revoked it no longer exists, so the lookup misses and the
+   request is rejected with HTTP 401 and `"code": "invalid_credentials"`.
+   Keys revoked before this behaviour changed are rejected the same way.
 5. If the key store itself cannot answer the lookup: HTTP 503 with
    `"code": "api_key_store_unavailable"`. Your credentials were never evaluated,
    so this is not a reason to rotate them — retry with backoff.
@@ -727,7 +786,8 @@ integrations using the original single-key system continue to work without
 modification.
 :::
 
-**Limits:** Maximum 3 active Developer API keys per user.
+**Limits:** Maximum 3 Developer API keys per user. Revoking one frees a slot
+immediately.
 
 ---
 
@@ -1022,7 +1082,7 @@ Yahoo-backed non-crypto datasets currently use simple app symbols and daily
 data: `us_stocks` (`AAPL`, `NVDA`, `TSLA`, `MSFT`, `AMZN`, `META`), `etfs`
 (`SPY`, `QQQ`), `forex` (`EURUSD`, `GBPUSD`, `USDJPY`), and `commodities`
 (`GOLD`, `SILVER`, `OIL`). Provider-specific symbols such as `GC=F` are kept
-inside the server manifest and S3 manifest metadata, not in user-facing paths.
+resolved server-side and never appear in the symbols this API accepts or returns.
 
 ### Estimate Cost
 
