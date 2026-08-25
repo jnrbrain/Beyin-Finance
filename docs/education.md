@@ -616,6 +616,27 @@ paginated.
 
 **Errors:** 401, 403, 429.
 
+#### Getting paid: payout profile & thresholds
+
+Course earnings are an accounts-payable balance, **not a wallet** — you cannot
+withdraw an arbitrary amount on demand. To receive money you must first
+complete your **payout profile** during seller onboarding, and your accrued
+net balance must reach the minimum threshold:
+
+- **Required billing details:** legal entity type (individual or company), a
+  **tax / ID number** — Turkish **T.C. Kimlik No** (11 digits) for individuals
+  or **Vergi Kimlik No (VKN, 10 digits)** for companies — your **IBAN**, and,
+  for international sellers, the bank **SWIFT/BIC** and payout currency. Turkish
+  sellers also select an e-document type (e-SMM / e-Fatura).
+- **Minimum payout threshold:** approximately **$20** (paid in the TRY
+  equivalent) for Turkey-based sellers, and **$250** for international sellers.
+  Once your net balance passes the threshold the payout process is initiated.
+- **Schedule:** payouts are processed monthly, typically between the **20th and
+  30th**.
+
+Until the payout profile is complete and the threshold is met, earnings
+continue to accrue but are not disbursed.
+
 ---
 
 ## Errors

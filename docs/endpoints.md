@@ -60,12 +60,38 @@ still use the Beyin Finance API endpoints documented here.
 
 ### Request correlation
 
-Clients may send a unique `X-Correlation-ID` header for every logical API
-request and reuse it across automatic retries. The API accepts only 8-128 characters
-from letters, numbers, `.`, `_`, `:`, and `-`; invalid values are replaced.
-User API and backtest responses echo the accepted value in
-`X-Correlation-ID`. Browser clients may read it through
-`Access-Control-Expose-Headers`.
+A **correlation ID** is a short identifier you attach to a request so you can
+trace it end-to-end — in your own logs and when reporting an issue to support.
+Send one logical ID per operation and reuse the *same* value across automatic
+retries of that operation, so a retried request is recognisable as the same
+logical call rather than a new one.
+
+Send it in the `X-Correlation-ID` request header. The value must be **8–128
+characters** and may contain only letters, digits, and the characters
+`.` `_` `:` `-`. If you send an invalid or empty value, the API ignores it and
+generates its own ID (prefixed `bf-`) so a correlation ID is always present.
+
+The accepted (or generated) value is echoed back in the `X-Correlation-ID`
+response header, and it is listed in `Access-Control-Expose-Headers` so
+browser-based clients can read it.
+
+**Request:**
+
+```
+POST /user?request_type=account_info
+X-Correlation-ID: acct-load-2f9a1c7e
+```
+
+**Response headers:**
+
+```
+X-Correlation-ID: acct-load-2f9a1c7e
+Access-Control-Expose-Headers: X-Correlation-ID,X-RateLimit-Limit,X-RateLimit-Remaining,X-RateLimit-Reset
+```
+
+If you had sent `X-Correlation-ID: ab` (too short) or omitted the header, the
+response would instead carry a server-generated value such as
+`X-Correlation-ID: bf-17c3f9a1b2d4e5f6`.
 
 ---
 
@@ -103,14 +129,53 @@ Retry-After: 15               # Seconds until reset
 
 ### Payment
 
-Payments are processed manually via **Binance Pay**.
+Plans are sold as **one-time purchases that extend your subscription** — there
+is no automatic recurring billing on the manual channels. Each successful
+payment adds a fixed period to your plan: a **monthly (1 month / "1 Ay")**
+purchase adds **30 days** and an **annual (1 year / "1 Yıl")** purchase adds
+**365 days**, stacked on top of any time you already have. To keep a plan
+active you make another purchase before it expires.
+
+Every purchase must be tied to your account by your **6-character Beyin ID**
+(for example `MTHG7A`), which you can find in your profile / account info.
+
+#### Card payment — Shopier
+
+Pay by card through the Beyin Finance Shopier store:
+
+- **Store:** <https://www.shopier.com/beyinfinance>
+- Open the store, pick the listing for the plan and period you want
+  (each plan has a separate monthly / annual listing), and complete checkout.
+- **Important:** during checkout, type your **6-character Beyin ID** into the
+  order note field. This is how the payment is matched to your account. If you
+  are unsure the note was saved, keep your order email so support can match it
+  by e-mail as a fallback.
+
+#### Crypto — Binance Pay (manual)
+
+Send USDT to the Beyin Finance Binance Pay account:
 
 - **Binance Pay ID:** `863 826 81`
-- **Minimum payment:** 1 USDT
-- **Exchange rate:** 1 USDT = 1 Beyin Credit
-- Subscription duration is proportional to the amount sent.
-- Payments over 6 months receive an additional **6 months free**.
-- **First payment bonus:** The first minimum 1 USDT payment grants a **1-month demo** of the selected plan.
+- **Important:** paste **only** your 6-character Beyin ID into the transfer
+  **Note / Remark** field so the payment is matched to your account. If your
+  Binance account is already linked to Beyin Finance, matching happens
+  automatically from the payer identity.
+
+#### Mobile — in-app purchase
+
+In the iOS and Android apps, plans are sold as store-managed subscriptions:
+
+- **Android:** Google Play Billing. **iOS:** Apple In-App Purchase (StoreKit).
+- Products are the plan × period SKUs (`beyin_<plan>_monthly` /
+  `beyin_<plan>_annual`); a single education product is sold as a one-time
+  purchase.
+- Your Beyin ID is bound to the purchase automatically by the app, so there is
+  no note to fill in. Every purchase is **verified server-side** with the store
+  before your plan is granted — the app does not unlock a plan on the device
+  alone.
+- Unlike the manual channels above, store subscriptions **auto-renew** through
+  the App Store / Google Play until you cancel them in the store. Renewals and
+  refunds are applied to your Beyin Finance plan automatically.
 
 ### Client Best Practices
 
@@ -148,12 +213,34 @@ When a request exceeds the current limit, the API returns HTTP 429 with a
 }
 ```
 
+**Service Temporarily Unavailable (HTTP 503):**
+
+When the rate-limit backend is momentarily unreachable, credit-consuming
+operations are rejected with a short cool-off rather than being processed
+without accounting:
+
+```json
+{
+  "error": "Rate limit store is unavailable; please retry shortly",
+  "reason": "temporarily_unavailable",
+  "retry_after": 5
+}
+```
+
 **Common `reason` codes:**
-- `rate_limit_exceeded`: User per-minute API request rate limit exceeded.
-- `temporarily_unavailable`: The request cannot be processed at this moment.
+- `rate_limit_exceeded` (HTTP 429): Your per-minute request limit was exceeded.
+- `temporarily_unavailable` (HTTP 503): The request cannot be processed right
+  now (e.g. the rate-limit backend is briefly unavailable); retry after the
+  indicated delay.
 
 **Recommended Handling:**
-Clients must inspect the `Retry-After` header (or `retry_after` JSON field) and apply exponential backoff with random jitter before retrying the request.
+Inspect the `Retry-After` header (or the `retry_after` JSON field, in seconds)
+and apply exponential backoff with random jitter before retrying.
+
+> These `reason` codes and the `Retry-After` / `retry_after` contract apply to
+> the request-facing REST endpoints (the User API and backtest API). Real-time
+> WebSocket channels signal overload with a plain `429` close/response without a
+> `Retry-After` value — back off client-side when you see one.
 
 ---
 
@@ -587,23 +674,27 @@ current plan identifier (`free` when no paid plan is active).
 
 `POST /user?request_type=referral_redeem`
 
-Converts available (unredeemed) referral commission into Beyin Credits or a
-pending USDT withdrawal request.
+Converts available (unredeemed) referral commission into **Beyin Credits**,
+instantly. You earn **20%** commission on referred users' payments, and the
+credited balance is spendable inside Beyin Finance the same as any other credit.
+
+Commission is redeemed **as credits only** — there is no cash/USDT withdrawal
+and therefore no payout or KYC step for referral earnings. (Instructor course
+earnings are a separate system with its own payout flow; see the Education API
+reference.)
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `redeem_type` | string | Yes | `credits` (instant) or `withdrawal` (pending review) |
-| `amount` | number | Yes | USDT amount, minimum 1, at most the available balance |
+| `redeem_type` | string | Yes | Must be `credits` |
+| `amount` | number | Yes | USDT-denominated amount, **minimum 1**, at most the available balance |
 
-**Response (credits):**
+**Response:**
 ```json
 {"ok": true, "data": {"redeem_type": "credits", "amount": 5.0, "status": "completed"}}
 ```
 
-**Response (withdrawal):**
-```json
-{"ok": true, "data": {"redeem_type": "withdrawal", "amount": 5.0, "status": "pending"}}
-```
+Sending any `redeem_type` other than `credits`, or an `amount` below 1, returns
+HTTP 400.
 
 ### Set Inviter / Referral ID
 
