@@ -1,6 +1,9 @@
 # Beyin Finance Developer API Reference
 
-**Base URL:** Provided in your API credentials dashboard.
+**Base URL:** `https://api.beyinfinance.com`
+
+All endpoints in this reference are relative to this base URL (for example,
+`POST https://api.beyinfinance.com/user?request_type=account_info`).
 
 ---
 

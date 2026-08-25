@@ -11,8 +11,9 @@ Beyin Finance API Documentation
        <p class="bf-docs-intro-kicker">Beyin Finance</p>
        <p class="bf-docs-intro-copy">
          Beyin Finance is a crypto finance platform for market signals, strategy tools,
-         trading data, and user-controlled Binance integrations. This documentation
-         explains the developer API surface used to integrate with Beyin Finance safely.
+         trading data, user-controlled Binance integrations, and an education marketplace
+         for instructors and students. This documentation explains the developer API
+         surface used to integrate with Beyin Finance safely.
        </p>
      </div>
      <a class="bf-docs-intro-button" href="https://beyinfinance.com" target="_blank" rel="noopener noreferrer">
@@ -25,4 +26,5 @@ Beyin Finance API Documentation
    :caption: Contents
 
    endpoints
+   education
    contributors

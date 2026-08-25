@@ -16,6 +16,10 @@ myst_enable_extensions = [
     "deflist",
 ]
 
+# Generate slug anchors for headings so in-page links like [Errors](#errors)
+# resolve (used by the Education flow cross-references).
+myst_heading_anchors = 4
+
 source_suffix = {
     '.rst': 'restructuredtext',
     '.md': 'markdown',
