@@ -761,9 +761,10 @@ Adds or removes a cryptocurrency trading pair from the user's synced favorites l
 
 ## Developer API Key Management
 
-Manage multiple Developer API keys per account. Each user may have up to
-**3 active** Developer API keys simultaneously. These endpoints require JWT
-authentication (API key auth is not allowed for key management operations).
+Manage your Developer API key. Each user may have **1 active** Developer API
+key at a time — to replace it, revoke the existing key and generate a new one.
+These endpoints require JWT authentication (API key auth is not allowed for key
+management operations).
 
 ### Generate API Key
 
@@ -795,45 +796,17 @@ afterward.
 
 **Errors:**
 - 400: "Label must be 1-64 characters"
-- 400: "Maximum 3 API keys allowed. Delete an existing key first."
+- 400: "Maximum 1 API key allowed. Delete your existing key first."
 - 403: "api_key_generate requires JWT authentication"
 - 503: API key store unavailable (`"code": "api_key_store_unavailable"`). No key
   was created and no secret was issued; retry the request.
-
-### List API Keys
-
-`POST /user?request_type=api_key_list`
-
-Lists your Developer API keys. Revoked keys are deleted, so every key returned
-here is usable. No body required.
-
-**Response:**
-```json
-{
-  "ok": true,
-  "data": {
-    "keys": [
-      {
-        "api_key": "bf_key_a1b2c3d4e5f6a1b2c3d4e5f6",
-        "label": "Trading Bot",
-        "permissions": ["read", "trade"],
-        "created_at": 1720000000
-      }
-    ],
-    "max_keys": 3
-  }
-}
-```
-
-**Errors:**
-- 503: API key store unavailable (`"code": "api_key_store_unavailable"`)
 
 ### Revoke API Key
 
 `POST /user?request_type=api_key_revoke`
 
-Revokes a Developer API key. The key record is deleted permanently, so it
-disappears from `api_key_list` and immediately frees one of your three slots.
+Revokes your Developer API key. The key record is deleted permanently and
+immediately frees your key slot so you can generate a replacement.
 Revocation cannot be undone — issue a new key with `api_key_generate`.
 
 | Field | Type | Required | Description |
@@ -872,14 +845,8 @@ authenticated app session remains valid. The same 503 applies on
 key store is reported as an outage, never silently downgraded to a guest
 (unauthenticated) session.
 
-:::{note}
-Original single-key credentials issued before multi-key support remain valid
-for backwards compatibility. Existing integrations continue to work without
-modification.
-:::
-
-**Limits:** Maximum 3 Developer API keys per user. Revoking one frees a slot
-immediately.
+**Limits:** 1 Developer API key per user. Revoking your key frees the slot
+immediately so you can issue a replacement.
 
 ---
 
@@ -2328,7 +2295,7 @@ failure so clients can react without parsing the message text.
 
 `api_key_store_unavailable` is the answer for a missing dependency, not a
 rejected credential: it is never a 401 and never a bare 500. It applies to
-`api_key_generate`, `api_key_list`, `api_key_revoke`, `X-API-Key` /
+`api_key_generate`, `api_key_revoke`, `X-API-Key` /
 `X-API-Secret` authentication on `/user`, and the same header pair on
 `/tradingdata`. The response body stays generic — no table, resource, or
 internal error detail is exposed.
