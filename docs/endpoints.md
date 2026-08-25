@@ -763,18 +763,17 @@ Revocation cannot be undone — issue a new key with `api_key_generate`.
 
 ### Authentication Flow (Developer API Keys)
 
-API consumers authenticate using `X-API-Key` and `X-API-Secret` headers:
+API consumers authenticate by sending both the `X-API-Key` and `X-API-Secret`
+headers on every request. The observable behavior is:
 
-1. Backend looks up the key in the `BeyinFinanceApiKeys` table.
-2. If found: verifies `SHA-256(X-API-Secret) == stored hash`.
-3. If not found: falls back to legacy `api_key_id-index` GSI on
-   BeyinFinanceUsers (backwards compatible).
-4. If the key was revoked it no longer exists, so the lookup misses and the
-   request is rejected with HTTP 401 and `"code": "invalid_credentials"`.
-   Keys revoked before this behaviour changed are rejected the same way.
-5. If the key store itself cannot answer the lookup: HTTP 503 with
-   `"code": "api_key_store_unavailable"`. Your credentials were never evaluated,
-   so this is not a reason to rotate them — retry with backoff.
+1. Valid key and secret: the request is authenticated and processed.
+2. Missing, unknown, or revoked credentials: HTTP 401 with
+   `"code": "invalid_credentials"`. Revoked keys stop authenticating
+   immediately.
+3. Credentials could not be evaluated because the service is temporarily
+   unavailable: HTTP 503 with `"code": "api_key_store_unavailable"`. Your
+   credentials were never checked, so this is not a reason to rotate them —
+   retry with backoff.
 
 A rejected or revoked Developer API key never carries `session_expired`, so an
 authenticated app session remains valid. The same 503 applies on
@@ -783,9 +782,8 @@ key store is reported as an outage, never silently downgraded to a guest
 (unauthenticated) session.
 
 :::{note}
-Legacy single-key authentication via the `api_key_id-index` GSI on
-BeyinFinanceUsers remains functional for backwards compatibility. Existing
-integrations using the original single-key system continue to work without
+Original single-key credentials issued before multi-key support remain valid
+for backwards compatibility. Existing integrations continue to work without
 modification.
 :::
 
