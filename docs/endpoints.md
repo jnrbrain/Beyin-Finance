@@ -2083,6 +2083,10 @@ Followers are automatically notified through their configured channels.
 
 Authentication is required to read visible leader posts. Pagination uses the
 opaque `next_cursor` response value as the next request's `cursor`.
+The feed is returned newest-first by `created_at` through the
+`feed-created-at-index` DynamoDB index (`feed_pk="community"`,
+`created_at` sort key). Clients must request bounded pages instead of loading
+the entire community feed at once.
 
 | Query parameter | Type | Required | Description |
 |-------|------|----------|-------------|
@@ -2096,6 +2100,53 @@ opaque `next_cursor` response value as the next request's `cursor`.
 
 The cursor is opaque and must be sent back unchanged. Malformed cursors return
 HTTP 400 instead of silently restarting at the first page.
+
+### Delete Own Post
+
+`POST /user?request_type=community_post_delete`
+
+Authentication is required. Only the post author can delete the post.
+Deletion is immediate for readers: the post is marked `hidden=true` and no
+longer appears in Akış or Profilim. The row is retained for moderation/audit
+for 15 days through DynamoDB TTL, then permanently removed.
+
+| Field | Type | Required |
+|-------|------|----------|
+| `post_id` | string | Yes |
+
+**Response:**
+```json
+{"ok": true, "data": {"post_id": "...", "deleted": true, "delete_after": 1786286000}}
+```
+
+**Errors:**
+- `400` — `post_id` missing
+- `403` — caller is not the post author, or the post is already hidden
+- `404` — post not found in the table
+- `500` — unexpected database error (logged server-side, not surfaced raw)
+
+### List Author's Posts (Profile)
+
+`POST /user?request_type=community_post_list`
+
+Returns paginated posts for a specific author. Used by the Profilim tab to
+display the authenticated user's own posts with per-post delete actions.
+Requires authentication.
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `author_id` | string | Yes | Beyin ID of the author |
+| `limit` | integer | No | Default 20, max 50 |
+| `last_evaluated_key` | string | No | Opaque cursor returned by previous page |
+
+**Response:**
+```json
+{"ok": true, "data": {"posts": [{"post_id": "...", "title": "BTC Analysis", "created_at": "1784990000", "like_count": "3", "comment_count": "1"}], "count": 20, "last_evaluated_key": "base64...", "has_more": true}}
+```
+
+Posts are sorted newest-first via the `author-index` GSI with
+`ScanIndexForward=False`. Send `last_evaluated_key` unchanged as the cursor
+for the next page; a malformed cursor returns HTTP 400.
 
 ### Like Post
 
