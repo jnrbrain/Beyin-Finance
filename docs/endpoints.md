@@ -856,15 +856,20 @@ immediately so you can issue a replacement.
 
 `POST /user?request_type=economic_news`
 
-**Cost:** 0.01 credits per request
+**Cost:** 0.01 credits per request (included in Plus/Pro/Investor daily quota)
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `limit` | number | No | Max items (default 20, max 50) |
+| `limit` | number | No | Max items per page (default 20, max 50) |
+| `cursor` | string | No | Opaque pagination cursor (`next_cursor` from previous page) |
+| `last_evaluated_key` | string | No | Alias for `cursor` |
 
 **Example body:**
 ```json
-{"limit": 10}
+{
+  "limit": 20,
+  "cursor": "ZXlKaF..."
+}
 ```
 
 **Response:**
@@ -873,28 +878,58 @@ immediately so you can issue a replacement.
   "ok": true,
   "data": {
     "news": [
-      {"id": "a3b2c1d4e5f6", "type": "news", "title": "Fed issues enforcement action", "source": "fed", "source_url": "https://...", "sentiment": "NEUTRAL", "impact": "MEDIUM", "category": "FED", "affected_coins": ["BTC"], "timestamp": 1784900000}
+      {
+        "id": "a3b2c1d4e5f6",
+        "type": "news",
+        "title": "Fed signals steady policy outlook amid cooling inflation",
+        "summary": "FOMC members emphasized balanced risk assessment...",
+        "source": "bloomberg",
+        "url": "https://...",
+        "sentiment": "MILDLY_BULLISH",
+        "sentiment_label": "MILDLY_BULLISH",
+        "sentiment_score": 2,
+        "impact": "HIGH",
+        "category": "FED",
+        "affected_coins": ["BTC", "ETH"],
+        "affected_markets": ["CRYPTO", "EQUITY"],
+        "country": "US",
+        "published_at": "2026-08-30T13:30:00+00:00",
+        "timestamp": 1788096600
+      }
     ],
-    "cost_credits": 0.01
-  }
+    "has_more": true,
+    "next_cursor": "ZXlKaF...",
+    "last_evaluated_key": "ZXlKaF...",
+    "cost_credits": 0.0
+  },
+  "timestamp": 1788097000
 }
 ```
 
-**Errors:** 402 if insufficient credits.
+**Errors:** 402 if insufficient credits, 400 if invalid cursor.
 
 ### Get Economic Calendar
 
 `POST /user?request_type=economic_calendar`
 
-**Cost:** 0.01 credits per request
+**Cost:** 0.01 credits per request (requires Plus, Pro, or Investor plan)
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `limit` | number | No | Max items (default 30, max 50) |
+| `limit` | number | No | Max items per page (default 20, max 50) |
+| `mode` | string | No | `"upcoming"` (default) for upcoming events, or `"history"` for past events archive |
+| `history` | boolean | No | Alternative to `mode="history"` |
+| `horizon_days` | number | No | Number of upcoming days to include when `mode="upcoming"` (default 7, max 30) |
+| `cursor` | string | No | Opaque pagination cursor (`next_cursor` from previous page) |
+| `last_evaluated_key` | string | No | Alias for `cursor` |
 
 **Example body:**
 ```json
-{"limit": 20}
+{
+  "limit": 20,
+  "mode": "upcoming",
+  "horizon_days": 7
+}
 ```
 
 **Response:**
@@ -903,14 +938,31 @@ immediately so you can issue a replacement.
   "ok": true,
   "data": {
     "calendar": [
-      {"id": "f6e5d4c3b2a1", "type": "calendar", "title": "CPI m/m (USD)", "source": "forexfactory", "scheduled_date": "2026-07-28T12:30:00-04:00", "impact": "HIGH", "forecast": "0.2%", "previous": "0.3%", "country": "USD"}
+      {
+        "id": "cal_us_cpi_20260830",
+        "type": "calendar",
+        "title": "Core PCE Price Index m/m",
+        "source": "forexfactory",
+        "scheduled_date": "2026-08-30T12:30:00Z",
+        "event_time": "2026-08-30T12:30:00+00:00",
+        "impact": "HIGH",
+        "forecast": "0.2%",
+        "previous": "0.3%",
+        "country": "US",
+        "timestamp": 1788093000
+      }
     ],
-    "cost_credits": 0.01
-  }
+    "has_more": true,
+    "next_cursor": "ZXlKaF...",
+    "last_evaluated_key": "ZXlKaF...",
+    "mode": "upcoming",
+    "cost_credits": 0.0
+  },
+  "timestamp": 1788097000
 }
 ```
 
-**Errors:** 402 if insufficient credits.
+**Errors:** 401 if unauthenticated, 402 if insufficient credits, 400 if invalid cursor.
 
 ---
 
