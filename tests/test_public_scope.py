@@ -34,6 +34,8 @@ class PublicReferenceScopeTests(unittest.TestCase):
         "community_leader_update",
         "community_post_comment",
         "community_post_create",
+        "community_post_delete",
+        "community_post_list",
         "community_post_like",
         "community_post_report",
         "community_unfollow",

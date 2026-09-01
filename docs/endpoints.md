@@ -801,6 +801,36 @@ afterward.
 - 503: API key store unavailable (`"code": "api_key_store_unavailable"`). No key
   was created and no secret was issued; retry the request.
 
+### List API Keys
+
+`POST /user?request_type=api_key_list`
+
+Returns the authenticated user's active Developer API keys. Secrets are never
+returned by this operation.
+
+**Response:**
+```json
+{
+  "ok": true,
+  "data": {
+    "keys": [
+      {
+        "api_key": "bf_key_a1b2c3d4e5f6a1b2c3d4e5f6",
+        "label": "Trading dashboard",
+        "permissions": ["read", "trade"],
+        "created_at": 1787098000
+      }
+    ],
+    "max_keys": 1
+  }
+}
+```
+
+**Errors:**
+- 403: `api_key_list requires JWT authentication`
+- 503: API key store unavailable (`"code": "api_key_store_unavailable"`);
+  retry with backoff.
+
 ### Revoke API Key
 
 `POST /user?request_type=api_key_revoke`
@@ -2135,10 +2165,8 @@ Followers are automatically notified through their configured channels.
 
 Authentication is required to read visible leader posts. Pagination uses the
 opaque `next_cursor` response value as the next request's `cursor`.
-The feed is returned newest-first by `created_at` through the
-`feed-created-at-index` DynamoDB index (`feed_pk="community"`,
-`created_at` sort key). Clients must request bounded pages instead of loading
-the entire community feed at once.
+The feed is returned newest-first by `created_at`. Clients must request bounded
+pages instead of loading the entire community feed at once.
 
 | Query parameter | Type | Required | Description |
 |-------|------|----------|-------------|
@@ -2158,9 +2186,9 @@ HTTP 400 instead of silently restarting at the first page.
 `POST /user?request_type=community_post_delete`
 
 Authentication is required. Only the post author can delete the post.
-Deletion is immediate for readers: the post is marked `hidden=true` and no
-longer appears in Akış or Profilim. The row is retained for moderation/audit
-for 15 days through DynamoDB TTL, then permanently removed.
+Deletion is immediate for readers: the post is marked hidden and no longer
+appears in Akış or Profilim. The record is retained for moderation/audit for 15
+days, then permanently removed.
 
 | Field | Type | Required |
 |-------|------|----------|
