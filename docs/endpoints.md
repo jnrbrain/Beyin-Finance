@@ -369,7 +369,7 @@ credits.
 }
 ```
 
-**Transaction actions:** `deposit`, `backtest`, `credit_adjustment`, `strategy_generate`, `strategy_success`, `economic_news`, `marketplace_signal`
+**Transaction actions:** `deposit`, `backtest`, `credit_adjustment`, `strategy_generate`, `strategy_refund`, `marketplace_signal`
 
 Automatic recovery details and adjustment reasons are not exposed through the
 customer API. Clients should display `credit_adjustment` as a generic balance
@@ -675,8 +675,9 @@ current plan identifier (`free` when no paid plan is active).
 `POST /user?request_type=referral_redeem`
 
 Converts available (unredeemed) referral commission into **Beyin Credits**,
-instantly. You earn **20%** commission on referred users' payments, and the
-credited balance is spendable inside Beyin Finance the same as any other credit.
+instantly. You earn a commission on referred users' payments — the default rate
+is **20%** and may be adjusted per account — and the credited balance is
+spendable inside Beyin Finance the same as any other credit.
 
 Commission is redeemed **as credits only** — there is no cash/USDT withdrawal
 and therefore no payout or KYC step for referral earnings. (Instructor course
@@ -886,7 +887,7 @@ immediately so you can issue a replacement.
 
 `POST /user?request_type=economic_news`
 
-**Cost:** 0.01 credits per request (included in Plus/Pro/Investor daily quota)
+**Free** for every authenticated user — no credit cost and no plan requirement.
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
@@ -936,13 +937,13 @@ immediately so you can issue a replacement.
 }
 ```
 
-**Errors:** 402 if insufficient credits, 400 if invalid cursor.
+**Errors:** 400 if invalid cursor.
 
 ### Get Economic Calendar
 
 `POST /user?request_type=economic_calendar`
 
-**Cost:** 0.01 credits per request (requires Plus, Pro, or Investor plan)
+**Free** for every authenticated user — no credit cost and no plan requirement.
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
@@ -992,7 +993,7 @@ immediately so you can issue a replacement.
 }
 ```
 
-**Errors:** 401 if unauthenticated, 402 if insufficient credits, 400 if invalid cursor.
+**Errors:** 401 if unauthenticated, 400 if invalid cursor.
 
 ---
 
@@ -1018,7 +1019,8 @@ immediately so you can issue a replacement.
 Strategies are always created as private. Use `strategy_visibility` to make public after a successful full_range backtest.
 :::
 
-**Cost:** 0.20 credits total (0.05 upfront + 0.15 on success)
+**Cost:** 1 credit, charged upfront. **Fully refunded** if generation fails, so
+a failed attempt costs nothing.
 
 **Example body:**
 ```json
@@ -1027,7 +1029,7 @@ Strategies are always created as private. Use `strategy_visibility` to make publ
 
 **Response:**
 ```json
-{"ok": true, "data": {"strategy_name": "emacross", "version": 1, "signal_mode": "signal_orders", "status": "generating", "cost_upfront": 0.05, "cost_on_success": 0.15}}
+{"ok": true, "data": {"strategy_name": "emacross", "version": 1, "signal_mode": "signal_orders", "status": "generating", "cost_upfront": 1.0, "cost_refunded_on_failure": 1.0}}
 ```
 
 **Errors:** 400 if strategy_name is invalid (too short, too long, or contains invalid characters); 400 if `position_side` is required but missing (`"position_side is required for futures signal_orders strategies"`); 400 if `position_side` value is invalid (`"position_side must be 'long' or 'short'"`); 402 if insufficient credits; 409 if the authenticated user already has a strategy with the same name.
@@ -2140,6 +2142,38 @@ Authentication is required to read visible community messages. Use the returned
 Pass `next_cursor` back as `cursor` to request the next page.
 The cursor is `null` and `has_more=false` on the final page.
 
+### Global Chat - Delete Message
+
+`POST /user?request_type=community_chat_delete`
+
+Soft-deletes a chat message. Two callers are authorized:
+
+- a **channel moderator** (admin, or the leader who owns the channel) may delete
+  any message in that channel,
+- the **author** may delete their own message.
+
+Any other caller receives `403`. The message row is kept and its text is replaced
+with a placeholder (`Bu mesaj silindi` for an author deletion,
+`Bu mesaj admin tarafından silindi` for a moderator deletion) so thread replies
+stay intact.
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `sort_key` | string | Yes | `sort_key` of the message to delete |
+| `channel` | string | No | Channel identifier, default `global` |
+
+**Response:**
+```json
+{"ok": true, "data": {"sort_key": "1784990000#1784990000_MTHG7A", "deleted": true, "deleted_by_author": true}, "timestamp": 1784990100}
+```
+
+| Status | Code | Meaning |
+|--------|------|---------|
+| 400 | — | `sort_key` missing, or `channel` is not a valid channel |
+| 401 | `session_expired` | No valid session or API key |
+| 403 | `forbidden` | Not a moderator and not the author |
+| 404 | `not_found` | Message does not exist in that channel |
+
 ### Create Post (Leaders Only)
 
 `POST /user?request_type=community_post_create`
@@ -2298,22 +2332,6 @@ for the next page; a malformed cursor returns HTTP 400.
 {"ok": true, "data": {"leader_id": "MTHG7A", "action": "unfollowed"}}
 ```
 
-### Apply to Become Leader
-
-`POST /user?request_type=community_leader_apply`
-
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `reason` | string | Yes | Why you want to be a leader (max 1000 chars) |
-| `experience` | string | Yes | Your trading/crypto experience (max 2000 chars) |
-
-**Response:**
-```json
-{"ok": true, "data": {"status": "pending", "message": "Application submitted. We will review and notify you."}}
-```
-
-**Errors:** 409 if already pending or already approved.
-
 ### List Leaders
 
 `GET /tradingdata?request_type=community_leaders&limit=25`
@@ -2345,6 +2363,13 @@ Return the opaque cursor unchanged; malformed cursors return HTTP 400.
 
 The system automatically generates a unique lowercase nickname by removing spaces from `display_name` (e.g. `"Finans Kulubu"` -> `"finanskulubu"`). Returns 409 Conflict if nickname is already taken by another user.
 
+`has_500_followers` must be `true` (you confirm you have at least 500 followers).
+Optional social links: `twitter`, `instagram`, `youtube`, `telegram`.
+
+If you already have a **pending** application, calling this again **updates**
+it in place (edit your submission) rather than failing. An **approved** leader
+cannot re-apply (409).
+
 **Response:**
 ```json
 {
@@ -2353,10 +2378,56 @@ The system automatically generates a unique lowercase nickname by removing space
     "status": "pending",
     "display_name": "Finans Kulubu",
     "nickname": "finanskulubu",
+    "updated": false,
     "message": "Application submitted. We will review and notify you."
   }
 }
 ```
+
+### Get Leader Application Status
+
+`POST /user?request_type=community_leader_application_get`
+
+Returns the caller's latest leader application so a client can show its status
+and prefill the edit form. No body required.
+
+**Response:**
+```json
+{
+  "ok": true,
+  "data": {
+    "status": "pending",
+    "is_leader": false,
+    "display_name": "Finans Kulubu",
+    "reason": "...",
+    "experience": "...",
+    "applied_at": 1784990000,
+    "twitter": "",
+    "instagram": "",
+    "youtube": "",
+    "telegram": ""
+  }
+}
+```
+
+`status` is one of `none`, `pending`, `approved`, `rejected`, or `withdrawn`.
+An approved leader returns `{"status": "approved", "is_leader": true}`; a user
+who never applied returns `{"status": "none", "is_leader": false}`.
+
+### Withdraw Leader Application
+
+`POST /user?request_type=community_leader_application_withdraw`
+
+Cancels a **pending** leader application. The record is marked `withdrawn`
+(history is kept) and you may apply again later. No body required.
+
+**Response:**
+```json
+{"ok": true, "data": {"status": "withdrawn"}}
+```
+
+**Errors:** 404 if there is no application, 409 if the latest application is not
+pending (already approved/rejected/withdrawn).
 
 ### Update Leader Profile
 
