@@ -112,13 +112,20 @@ body,
   background: var(--bf-sidebar);
   border-bottom: 1px solid var(--bf-sidebar-border);
   padding: 24px 18px 18px;
+  /* The theme centres this whole block. Everything else in the sidebar (the
+     search field, the toggle, the nav tree) starts at the same left edge, so a
+     centred logo read as misaligned rather than as centred. */
+  text-align: left;
 }
 
 .wy-side-nav-search > a,
 .wy-side-nav-search .wy-dropdown > a {
-  display: inline-flex;
+  display: flex;
   align-items: center;
-  justify-content: center;
+  /* Left, not centre: the mark and the wordmark are one unit that shares the
+     search field's left edge. Centring floated the pair by however wide the
+     wordmark happened to be — which is exactly the "shifted" look. */
+  justify-content: flex-start;
   gap: 8px;
   width: 100%;
   color: var(--bf-sidebar-text);
@@ -143,12 +150,14 @@ body,
   padding: 0;
 }
 
-.wy-side-nav-search > a.icon-home {
-  text-align: left;
-}
-
 .wy-side-nav-search > a.icon-home::after {
   display: none;
+}
+
+/* The version line sits under the wordmark and must share its left edge. */
+.wy-side-nav-search > div.version {
+  margin: 4px 0 12px;
+  text-align: left;
 }
 
 .wy-side-nav-search > a:hover,
@@ -167,12 +176,20 @@ body,
 }
 
 .bf-theme-toggle {
-  display: inline-flex;
+  display: flex;
   align-items: center;
   justify-content: center;
-  width: calc(100% - 28px);
-  min-height: 34px;
-  margin: 12px 14px 16px;
+  /* Same box as the search field: full width of the sidebar's 18px padding
+     box, no side margins of its own. The old `calc(100% - 28px)` plus 14px
+     margins left it inset 4px past the input on both edges — close enough to
+     look like a mistake rather than a choice. */
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 42px;
+  /* The theme zeroes the search form's bottom margin, so the toggle owns the
+     gap on whichever side it lands (the JS puts it after .version when there
+     is a version string, otherwise last). */
+  margin: 10px 0;
   padding: 8px 12px;
   background: var(--bf-toggle-bg);
   border: 1px solid var(--bf-toggle-border);
@@ -306,9 +323,38 @@ body,
   color: var(--bf-primary) !important;
 }
 
+/* Mobile top bar. The theme hard-codes white text and a white hamburger for a
+   dark green bar; on our white sidebar colour that left the bar looking empty
+   — no title, no way to find the menu. */
 .wy-nav-top {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;
   background: var(--bf-sidebar);
   border-bottom: 2px solid var(--bf-primary);
+  color: var(--bf-sidebar-text);
+  line-height: 1.3;
+}
+
+.wy-nav-top a,
+.wy-nav-top a:visited {
+  color: var(--bf-sidebar-text);
+  font-weight: 700;
+}
+
+.wy-nav-top i {
+  /* The theme floats the hamburger; in a flex row that drops it out of the
+     layout and it lands on top of the title. */
+  float: none;
+  flex: 0 0 auto;
+  padding: 0;
+  color: var(--bf-primary);
+  font-size: 22px;
+}
+
+.wy-nav-top img {
+  margin-right: 0;
 }
 
 .wy-breadcrumbs {
@@ -594,11 +640,14 @@ footer,
   max-height: 220px;
 }
 
+/* Copy first, action under it. As a `space-between` row the button squeezed the
+   paragraph into a narrow strip on anything below a wide desktop, and the call
+   to action sat outside the reading path instead of at the end of it. */
 .bf-docs-intro {
   display: flex;
-  gap: 18px;
-  align-items: center;
-  justify-content: space-between;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 16px;
   margin: 8px 0 30px;
   padding: 18px;
   background: linear-gradient(135deg, #fff7e3 0%, #ffffff 72%);
@@ -734,17 +783,176 @@ html[data-bf-theme="dark"] .bf-contributor-links a {
   color: #ffd36a;
 }
 
+/* ── Responsive ───────────────────────────────────────
+   The RTD theme only swaps the sidebar for a top bar at 768px. Everything
+   between that and a wide desktop — a half-screen window, a square window, a
+   tablet — kept desktop padding and a 300px sidebar, which left the API tables
+   a few hundred pixels of usable width. These queries narrow the chrome first
+   and the type last, so the reference stays readable rather than merely
+   scrollable. */
+
+/* Long code identifiers are everywhere in this reference (`api_key_store_unavailable`,
+   full URLs). They must break instead of pushing the page wider than the
+   viewport — a horizontal scrollbar on the *document* breaks every layout
+   below it. */
+.rst-content p,
+.rst-content li,
+.rst-content dd,
+.rst-content td,
+.rst-content th,
+.rst-content h1,
+.rst-content h2,
+.rst-content h3,
+.rst-content h4 {
+  overflow-wrap: break-word;
+}
+
+.rst-content .highlight > pre,
+.rst-content pre.literal-block {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Wide tables scroll inside their own box, not the page. */
+.rst-content .wy-table-responsive {
+  width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Tablets, half-width and square windows: keep the sidebar, shrink it. */
+@media screen and (min-width: 769px) and (max-width: 1200px) {
+  .wy-nav-side,
+  .wy-menu-vertical {
+    width: 250px;
+  }
+
+  /* .wy-side-scroll is deliberately wider than its parent so the theme can
+     clip the scrollbar — keep that 20px surplus when narrowing. */
+  .wy-side-scroll {
+    width: 270px;
+  }
+
+  .wy-nav-content-wrap {
+    margin-left: 250px;
+  }
+
+  .wy-nav-content {
+    padding: 34px 32px;
+  }
+}
+
+/* Square-ish windows (an 800×800 or 1000×1000 desktop window): vertical space
+   is as scarce as horizontal, so trim the banner rather than the text. */
+@media screen and (max-aspect-ratio: 5 / 4) and (max-width: 1200px) {
+  .bf-hero-banner img {
+    max-height: 150px;
+  }
+
+  .wy-nav-content {
+    min-height: 0;
+  }
+}
+
 @media screen and (max-width: 768px) {
   .wy-nav-content {
-    padding: 28px 20px;
+    padding: 26px 18px;
+    min-height: 0;
+  }
+
+  /* The theme's mobile bar is fixed at the top; content must clear it. */
+  .wy-nav-content-wrap {
+    margin-left: 0;
   }
 
   .rst-content h1 {
-    font-size: 28px;
+    font-size: 27px;
+    line-height: 1.25;
+  }
+
+  .rst-content h2 {
+    font-size: 22px;
+  }
+
+  .rst-content h3 {
+    font-size: 18px;
+  }
+
+  .bf-hero-banner img {
+    max-height: 140px;
+  }
+
+  .bf-docs-intro {
+    padding: 16px;
+  }
+
+  .bf-docs-intro-button {
+    width: 100%;
   }
 
   .bf-contributor-card {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  /* nowrap comes from the theme and turns every table into a wide scroller.
+     On a phone a wrapped cell beats a two-finger horizontal drag — including
+     the inline literals, which are the widest thing in these tables
+     (`api_key_store_unavailable` alone is ~200px). */
+  .rst-content .wy-table-responsive td,
+  .rst-content .wy-table-responsive th,
+  .rst-content table.docutils td code,
+  .rst-content table.docutils th code {
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
+  .rst-content table.docutils td,
+  .rst-content table.docutils th {
+    padding: 8px 10px;
+    font-size: 13.5px;
+  }
+
+  .rst-content .highlight > pre,
+  .rst-content pre.literal-block {
+    font-size: 12.5px;
+    padding: 12px;
+  }
+
+  /* Prev/next footer buttons stack rather than colliding. */
+  .rst-footer-buttons .btn {
+    display: block;
+    width: 100%;
+    margin-bottom: 8px;
+    text-align: center;
+  }
+}
+
+/* Small phones (≤400px) and any very narrow window. */
+@media screen and (max-width: 400px) {
+  .wy-nav-content {
+    padding: 20px 14px;
+  }
+
+  .rst-content h1 {
+    font-size: 24px;
+  }
+
+  /* The breadcrumb's "View page source" aside wraps under the trail instead of
+     squeezing it to one word per line. */
+  .wy-breadcrumbs-aside {
+    display: block;
+    float: none;
+    margin-top: 6px;
+  }
+
+  .bf-hero-banner img {
+    max-height: 110px;
+  }
+
+  .bf-contributor-avatar {
+    width: 56px;
+    height: 56px;
+    flex-basis: 56px;
   }
 }

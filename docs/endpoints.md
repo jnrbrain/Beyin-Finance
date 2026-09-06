@@ -1104,7 +1104,7 @@ Editing a strategy creates a new version and triggers AI code regeneration. All 
 |-------|------|----------|-------------|
 | `strategy_name` | string | Yes | |
 | `visibility` | string | Yes | `"private"` or `"public"` |
-| `credits_per_signal` | number | Yes* | 0.01-10 (*required for public) - fee charged to subscribers per signal |
+| `monthly_price_credits` | number | Yes* | 1-1000 (*required for public) — fixed MONTHLY subscription fee in credits, charged to subscribers each month (prepaid) |
 | `timeframe` | string | Yes* | (*required for public) e.g. `"4h"` |
 | `coins` | string[] | Yes* | (*required for public) coins to list |
 
@@ -1586,7 +1586,7 @@ audit and entitlement checks.
 
 **Response:**
 ```json
-{"listings": [{"listing_id": "lst_abc123", "strategy_name": "emacross", "owner": "MT***A", "market_type": "spot", "timeframe": "4h", "signal_mode": "signal_orders", "listed_coins": ["BTC", "ETH"], "signal_price_credits": 0.5, "total_pnl_pct": 12.5, "win_rate_pct": 68.0, "subscriber_count": 5, "total_signals_delivered": 42}], "next_cursor": "base64...", "has_more": true}
+{"listings": [{"listing_id": "lst_abc123", "strategy_name": "emacross", "owner": "MT***A", "market_type": "spot", "timeframe": "4h", "signal_mode": "signal_orders", "listed_coins": ["BTC", "ETH"], "billing_period": "monthly", "monthly_price_credits": 20, "total_pnl_pct": 12.5, "win_rate_pct": 68.0, "subscriber_count": 5, "total_signals_delivered": 42}], "next_cursor": "base64...", "has_more": true}
 ```
 
 Send the returned cursor unchanged to fetch the next page. `has_more=false`
@@ -1622,7 +1622,8 @@ For the authenticated caller's ownership and subscription state, use:
     "leverage": 1,
     "signal_mode": "signal_orders",
     "listed_coins": ["BTC", "ETH"],
-    "signal_price_credits": 0.5,
+    "billing_period": "monthly",
+    "monthly_price_credits": 20,
     "total_pnl_pct": 12.5,
     "win_rate_pct": 68.0,
     "subscriber_count": 5,
@@ -1659,7 +1660,7 @@ deterministic subscription for the listing, `subscription_status` and
 
 **Response:**
 ```json
-{"ok": true, "data": {"subscription_id": "sub_5c9f...", "listing_id": "lst_abc123", "strategy_name": "emacross", "active_coins": ["BTC", "ETH"], "signal_price_credits": 0.5, "bindings_created": 2}}
+{"ok": true, "data": {"subscription_id": "sub_5c9f...", "listing_id": "lst_abc123", "strategy_name": "emacross", "active_coins": ["BTC", "ETH"], "billing_period": "monthly", "monthly_price_credits": 20, "credits_charged": 20, "next_charge_at": 1786600000, "expires_at": 1786600000, "bindings_created": 2}}
 ```
 
 The subscription ID is deterministic for the authenticated user and listing.
@@ -1692,7 +1693,7 @@ subscription.
 
 **Response:**
 ```json
-{"ok": true, "data": {"listings": [{"listing_id": "lst_abc123", "strategy_name": "emacross", "status": "active", "signal_mode": "signal_orders", "market_type": "spot", "timeframe": "4h", "listed_coins": ["BTC"], "signal_price_credits": 0.5, "subscriber_count": 5, "total_signals_delivered": 42, "total_credits_earned": 21.0, "total_pnl_pct": 12.5, "win_rate_pct": 68.0, "created_at": 1784000000}], "last_evaluated_key": "base64...", "has_more": true}}
+{"ok": true, "data": {"listings": [{"listing_id": "lst_abc123", "strategy_name": "emacross", "status": "active", "signal_mode": "signal_orders", "market_type": "spot", "timeframe": "4h", "listed_coins": ["BTC"], "billing_period": "monthly", "monthly_price_credits": 20, "subscriber_count": 5, "total_signals_delivered": 42, "total_credits_earned": 100.0, "total_pnl_pct": 12.5, "win_rate_pct": 68.0, "created_at": 1784000000}], "last_evaluated_key": "base64...", "has_more": true}}
 ```
 
 ### My Subscriptions
@@ -1706,7 +1707,7 @@ subscription.
 
 **Response:**
 ```json
-{"ok": true, "data": {"subscriptions": [{"subscription_id": "sub_xyz789", "listing_id": "lst_abc123", "creator_beyin_id": "ABC123", "selected_coins": ["BTC"], "status": "active", "signal_price_credits": 0.5, "signals_received": 12, "credits_spent": 6.0, "created_at": 1784000000}], "last_evaluated_key": "base64...", "has_more": true}}
+{"ok": true, "data": {"subscriptions": [{"subscription_id": "sub_xyz789", "listing_id": "lst_abc123", "creator_beyin_id": "ABC123", "selected_coins": ["BTC"], "status": "active", "billing_period": "monthly", "monthly_price_credits": 20, "signals_received": 12, "credits_spent": 20.0, "next_charge_at": 1786600000, "expires_at": 1786600000, "created_at": 1784000000}], "last_evaluated_key": "base64...", "has_more": true}}
 ```
 
 For both account lists, return the cursor unchanged to fetch the next result
