@@ -149,6 +149,18 @@ class PublicReferenceScopeTests(unittest.TestCase):
         self.assertIn("test1_ABC123", ENDPOINTS)
         self.assertIn("create their own local `test1` strategy", ENDPOINTS)
 
+    # Machine-readable `reason` / status tokens that clients switch on. These
+    # are part of the public API contract (the app and third-party integrators
+    # branch on the exact string), so the reference must spell them out even
+    # though they happen to contain words like "concurrency" that we otherwise
+    # keep out of prose. They are stripped before the infra-term scan below so
+    # documenting the contract never trips the "no internal details" guard.
+    PUBLIC_CONTRACT_TOKENS = {
+        "backtest_concurrency_limit",
+        "strategy_generation_in_progress",
+        "backtest_capacity_exceeded",
+    }
+
     def test_public_docs_do_not_expose_internal_system_details(self):
         forbidden_terms = [
             "execute-api",
@@ -175,8 +187,14 @@ class PublicReferenceScopeTests(unittest.TestCase):
             "Public Trading Data routes",
             "credential-free",
         ]
+        # Remove the documented public contract tokens so an infra word that
+        # only appears *inside* one of them (e.g. "concurrency" within
+        # "backtest_concurrency_limit") does not count as leaking internals.
+        scannable_source = PUBLISHED_SOURCE
+        for token in self.PUBLIC_CONTRACT_TOKENS:
+            scannable_source = scannable_source.replace(token, "")
         for term in forbidden_terms:
-            self.assertNotIn(term, PUBLISHED_SOURCE)
+            self.assertNotIn(term, scannable_source)
 
     def test_repository_metadata_is_real_and_buildable(self):
         metadata = tomllib.loads(

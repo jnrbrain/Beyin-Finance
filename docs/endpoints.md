@@ -232,6 +232,20 @@ without accounting:
 - `temporarily_unavailable` (HTTP 503): The request cannot be processed right
   now (e.g. the rate-limit backend is briefly unavailable); retry after the
   indicated delay.
+- `backtest_concurrency_limit` (HTTP 429): You already have the maximum number
+  of backtest jobs running at once. The cap adapts to current platform load, so
+  it can be lower when the system is busy. Wait for a running job to finish
+  (poll `action=status`) before launching another. Only backtest launches
+  (`action=run` / `full_range` / `portfolio`) can return this — status polling,
+  results, and every other action are never limited by it. The body also
+  includes `current_running` and `max_concurrent`.
+- `strategy_generation_in_progress` (HTTP 429): You already have the maximum
+  number of AI strategy generations running (`/user?action=strategy_generate`).
+  Wait for one to finish before starting another. The body also includes
+  `in_progress` and `max_concurrent`.
+- `backtest_capacity_exceeded` (HTTP 429): The backtest engine hit a transient
+  dispatch capacity limit. This is rare and short-lived; retry after the
+  indicated delay.
 
 **Recommended Handling:**
 Inspect the `Retry-After` header (or the `retry_after` JSON field, in seconds)
@@ -1049,7 +1063,7 @@ a failed attempt costs nothing.
 {"ok": true, "data": {"strategy_name": "emacross", "version": 1, "signal_mode": "signal_orders", "status": "generating", "cost_upfront": 1.0, "cost_refunded_on_failure": 1.0}}
 ```
 
-**Errors:** 400 if strategy_name is invalid (too short, too long, or contains invalid characters); 400 if `position_side` is required but missing (`"position_side is required for futures signal_orders strategies"`); 400 if `position_side` value is invalid (`"position_side must be 'long' or 'short'"`); 402 if insufficient credits; 409 if the authenticated user already has a strategy with the same name.
+**Errors:** 400 if strategy_name is invalid (too short, too long, or contains invalid characters); 400 if `position_side` is required but missing (`"position_side is required for futures signal_orders strategies"`); 400 if `position_side` value is invalid (`"position_side must be 'long' or 'short'"`); 402 if insufficient credits; 409 if the authenticated user already has a strategy with the same name; 429 with `reason: "strategy_generation_in_progress"` (plus `Retry-After`) if you already have the maximum number of generations running — wait for one to finish, then retry. See the [Common `reason` codes](#common-reason-codes) table.
 
 ### Get Strategy Detail
 
@@ -1411,6 +1425,37 @@ The recommendation simulates a fixed candidate set of divide values over the
 same signal timeline and picks the one maximizing
 `final_balance × (1 − max_drawdown/200)` — return lightly penalized by
 drawdown.
+
+### Backtest Launch Limits
+
+Launching a backtest (`action=run`, `full_range`, or `portfolio`) is a heavy,
+asynchronous operation. To keep the platform fair when many people run jobs at
+once, each account has a limit on how many backtest jobs it can have **running
+at the same time**. This limit is not a fixed plan tier — it adapts to current
+platform load, so it is higher when the platform is idle and lower when it is
+busy.
+
+When you exceed it, the launch is rejected with HTTP 429 and
+`reason: "backtest_concurrency_limit"`:
+
+```json
+{
+  "error": "You already have the maximum number of backtests running. Wait for one to finish, then try again.",
+  "reason": "backtest_concurrency_limit",
+  "current_running": 4,
+  "max_concurrent": 4,
+  "retry_after": 15
+}
+```
+
+A `Retry-After` header accompanies the response. This limit applies **only** to
+the three launch actions. Polling `action=status`, fetching `action=result`,
+and every other backtest action are never rejected for this reason — a job you
+already started always remains pollable to completion. Accepted launches keep
+returning `"status": "dispatched"` as before. See the
+[Common `reason` codes](#common-reason-codes) table for the full contract and
+the related `backtest_capacity_exceeded` and `strategy_generation_in_progress`
+reasons.
 
 ### Get Per-Coin Portfolio Result
 
