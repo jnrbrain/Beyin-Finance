@@ -35,22 +35,16 @@ when a token is present the response is enriched with viewer-specific state
 (such as whether you already own a product). Public certificate verification
 requires no token at all.
 
-Every non-public operation is authorized against a **scope** carried by the
-session. If your session lacks the scope for an operation the API returns
-HTTP 403.
+Every non-public operation is authorized by the caller's **session identity**
+and, depending on the operation, one of three additional checks. There is no
+separate scope-granting step — authorization follows directly from who you are
+and what you own:
 
-| Scope | Grants |
-|-------|--------|
-| `education:purchase` | Create checkout sessions |
-| `education:orders:read` | Read orders and refund requests |
-| `education:orders:write` | Create refund requests |
-| `education:learn` | Learning surface: dashboard, library, progress, playback, questions |
-| `education:reviews:write` | Create, update, or delete your own reviews |
-| `education:certificates:read` | List your certificates |
-| `education:certificates:write` | Request certificate issuance |
-| `education:studio` | Instructor studio: products, curriculum, submissions, bundles, answers |
-| `education:studio:upload` | Instructor media uploads |
-| `education:studio:analytics` | Instructor sales analytics and payout statements |
+| Authorization | Applies to | Failure |
+|---------------|-----------|---------|
+| **Authenticated session** | Student operations: checkout, orders, learning dashboard/library/progress, reviews, questions, certificates | `401` if the session is missing or invalid |
+| **Entitlement / ownership** | Reading a specific product's content — playback, progress, resume, reading progress — requires that you own (are entitled to) that product. Order and refund-request reads are restricted to the order's creator. | `403` (`entitlement_required`, or not the owner) |
+| **Leader role** | Every `/education/v1/studio/*` endpoint requires the caller to hold a community-leader (instructor) role | `401` if unauthenticated, `403` if authenticated without the leader role |
 
 A missing or invalid token returns HTTP 401; see [Errors](#errors).
 
@@ -224,11 +218,13 @@ UI.
 
 ## Student Endpoints
 
-Require a session with the scope listed on each endpoint.
+These endpoints require an authenticated session. Where noted, they additionally
+require entitlement to (ownership of) the referenced product, or restrict access
+to the resource's owner.
 
 ### Create Checkout Session
 
-`POST /education/v1/checkouts` — scope `education:purchase`
+`POST /education/v1/checkouts`
 
 Initiates a purchase. Requires an `Idempotency-Key` header. Returns a checkout
 session the client uses to complete payment.
@@ -238,16 +234,16 @@ session the client uses to complete payment.
 
 ### Get Order Status
 
-`GET /education/v1/orders/{order_id}` — scope `education:orders:read`
+`GET /education/v1/orders/{order_id}`
 
-Owner-scoped order detail. Poll this after checkout to observe payment
+Owner-scoped order detail (only the order's creator can read it). Poll this after checkout to observe payment
 progress and entitlement grant.
 
 **Errors:** 401, 403 not owner, 404 not found, 429.
 
 ### Get My Dashboard
 
-`GET /education/v1/me/dashboard` — scope `education:learn`
+`GET /education/v1/me/dashboard`
 
 Learning summary with in-progress and completed counts. Served
 `Cache-Control: private, no-store`.
@@ -256,7 +252,7 @@ Learning summary with in-progress and completed counts. Served
 
 ### List My Library
 
-`GET /education/v1/me/library` — scope `education:learn`
+`GET /education/v1/me/library`
 
 Deduplicated entitlement products with per-product status. Cursor paginated,
 `private, no-store`.
@@ -265,24 +261,24 @@ Deduplicated entitlement products with per-product status. Cursor paginated,
 
 ### Get Resume Target
 
-`GET /education/v1/me/enrollments/{product_id}/resume` — scope `education:learn`
+`GET /education/v1/me/enrollments/{product_id}/resume`
 
-Last server-authoritative lesson/checkpoint so the client can resume exactly
-where the student stopped.
+Requires entitlement to the product. Last server-authoritative
+lesson/checkpoint so the client can resume exactly where the student stopped.
 
 **Errors:** 401, 403 no entitlement, 404 not found, 429.
 
 ### Get Enrollment Progress
 
-`GET /education/v1/me/enrollments/{product_id}/progress` — scope `education:learn`
+`GET /education/v1/me/enrollments/{product_id}/progress`
 
-Detailed progress for one enrolled product.
+Requires entitlement to the product. Detailed progress for one enrolled product.
 
 **Errors:** 401, 403, 404, 429.
 
 ### Adopt Curriculum Revision
 
-`POST /education/v1/me/enrollments/{product_id}/revision-adoptions` — scope `education:learn`
+`POST /education/v1/me/enrollments/{product_id}/revision-adoptions`
 
 Opt in to complete a newer curriculum revision. Requires `Idempotency-Key` and
 `If-Match` (see [Optimistic concurrency](#optimistic-concurrency-etag--if-match)).
@@ -292,7 +288,7 @@ Returns updated enrollment progress.
 
 ### Create Playback Session
 
-`POST /education/v1/products/{product_id}/playback-sessions` — scope `education:learn`
+`POST /education/v1/products/{product_id}/playback-sessions`
 
 Starts a secure video playback session after an entitlement check. Requires
 `Idempotency-Key`. Returns the session and playback credentials.
@@ -301,7 +297,7 @@ Starts a secure video playback session after an entitlement check. Requires
 
 ### Append Playback Events
 
-`POST /education/v1/playback-sessions/{session_id}/events` — scope `education:learn`
+`POST /education/v1/playback-sessions/{session_id}/events`
 
 Sequential heartbeat / seek / pause / rate event batches. Progress is derived
 server-side from these events (with anti-cheat validation), not from
@@ -311,7 +307,7 @@ client-reported percentages. Requires `Idempotency-Key`.
 
 ### Close Playback Session
 
-`DELETE /education/v1/playback-sessions/{session_id}` — scope `education:learn`
+`DELETE /education/v1/playback-sessions/{session_id}`
 
 Idempotent session close that persists the last checkpoint. Requires
 `Idempotency-Key`.
@@ -320,7 +316,7 @@ Idempotent session close that persists the last checkpoint. Requires
 
 ### Update Reading Progress
 
-`PUT /education/v1/me/enrollments/{product_id}/reading-progress` — scope `education:learn`
+`PUT /education/v1/me/enrollments/{product_id}/reading-progress`
 
 Versioned checkpoint for PDF/article reading progress. Requires
 `Idempotency-Key`. Returns updated enrollment progress.
@@ -329,7 +325,7 @@ Versioned checkpoint for PDF/article reading progress. Requires
 
 ### Create or Update My Review
 
-`PUT /education/v1/products/{product_id}/reviews/me` — scope `education:reviews:write`
+`PUT /education/v1/products/{product_id}/reviews/me`
 
 Upsert your own review (rating + comment) for a product. Requires
 `Idempotency-Key`.
@@ -338,7 +334,7 @@ Upsert your own review (rating + comment) for a product. Requires
 
 ### Delete My Review
 
-`DELETE /education/v1/products/{product_id}/reviews/me` — scope `education:reviews:write`
+`DELETE /education/v1/products/{product_id}/reviews/me`
 
 Delete your own review. Requires `Idempotency-Key`. Returns a deletion receipt.
 
@@ -346,7 +342,7 @@ Delete your own review. Requires `Idempotency-Key`. Returns a deletion receipt.
 
 ### Create a Question
 
-`POST /education/v1/products/{product_id}/questions` — scope `education:learn`
+`POST /education/v1/products/{product_id}/questions`
 
 Ask a question on a product you are entitled to. Requires `Idempotency-Key`.
 Returns `201 Created`.
@@ -355,7 +351,7 @@ Returns `201 Created`.
 
 ### Resolve a Question
 
-`PATCH /education/v1/questions/{question_id}` — scope `education:learn`
+`PATCH /education/v1/questions/{question_id}`
 
 Mark your question resolved or update its state. Requires `Idempotency-Key`.
 
@@ -363,7 +359,7 @@ Mark your question resolved or update its state. Requires `Idempotency-Key`.
 
 ### Create a Refund Request
 
-`POST /education/v1/orders/{order_id}/refund-requests` — scope `education:orders:write`
+`POST /education/v1/orders/{order_id}/refund-requests`
 
 Initiate a refund within the **15-day** policy window. Requires
 `Idempotency-Key`. Returns `201 Created`.
@@ -373,7 +369,7 @@ not refundable), 429.
 
 ### Get a Refund Request
 
-`GET /education/v1/orders/{order_id}/refund-requests/{refund_request_id}` — scope `education:orders:read`
+`GET /education/v1/orders/{order_id}/refund-requests/{refund_request_id}`
 
 Owner-scoped refund request status.
 
@@ -381,7 +377,7 @@ Owner-scoped refund request status.
 
 ### Request Certificate Issuance
 
-`POST /education/v1/me/certificates` — scope `education:certificates:write`
+`POST /education/v1/me/certificates`
 
 Request certificate generation after completing a course. Requires
 `Idempotency-Key`. Returns `201 Created` with the certificate (including its
@@ -391,7 +387,7 @@ public verification token).
 
 ### List My Certificates
 
-`GET /education/v1/me/certificates` — scope `education:certificates:read`
+`GET /education/v1/me/certificates`
 
 Paginated list of your certificates.
 
@@ -402,9 +398,10 @@ Paginated list of your certificates.
 ## Instructor Endpoints (Leader Studio)
 
 For approved community **leaders** publishing and managing paid content.
-Require scope `education:studio` unless a more specific scope is noted. All
-state changes require an `Idempotency-Key`; metadata edits also require
-`If-Match`.
+Every endpoint in this section requires the caller to hold the **leader**
+role (`community_leader`, `admin`, `moderator`, `leader`, or `owner`); a plain
+authenticated session is rejected with `403`. All state changes require an
+`Idempotency-Key`; metadata edits also require `If-Match`.
 
 ### Instructor Flow
 
@@ -472,8 +469,7 @@ Full replacement of the draft curriculum tree. Requires `Idempotency-Key` and
 
 ### Create an Upload
 
-`POST /education/v1/studio/uploads` — scope `education:studio:upload`
-
+`POST /education/v1/studio/uploads`
 Register a multipart upload; returns the part policy and lease. Requires
 `Idempotency-Key`. Returns `201 Created`.
 
@@ -481,8 +477,7 @@ Register a multipart upload; returns the part policy and lease. Requires
 
 ### List Uploads
 
-`GET /education/v1/studio/uploads` — scope `education:studio:upload`
-
+`GET /education/v1/studio/uploads`
 Your transfers, cursor paginated.
 
 | Query parameter | Type | Description |
@@ -494,8 +489,7 @@ Your transfers, cursor paginated.
 
 ### Get Presigned Part URLs
 
-`POST /education/v1/studio/uploads/{upload_id}/part-urls` — scope `education:studio:upload`
-
+`POST /education/v1/studio/uploads/{upload_id}/part-urls`
 Batch presigned URLs for **missing parts only** (max 16 per call). Requires
 `Idempotency-Key`.
 
@@ -503,8 +497,7 @@ Batch presigned URLs for **missing parts only** (max 16 per call). Requires
 
 ### Report Part Completions
 
-`POST /education/v1/studio/uploads/{upload_id}/part-receipts` — scope `education:studio:upload`
-
+`POST /education/v1/studio/uploads/{upload_id}/part-receipts`
 Idempotent part-completion reporting. Requires `Idempotency-Key`. Returns the
 updated upload status.
 
@@ -512,24 +505,21 @@ updated upload status.
 
 ### Get Upload Status
 
-`GET /education/v1/studio/uploads/{upload_id}` — scope `education:studio:upload`
-
+`GET /education/v1/studio/uploads/{upload_id}`
 Server snapshot of upload status (authoritative, not client-reported bytes).
 
 **Errors:** 401, 403, 404, 429.
 
 ### Abort an Upload
 
-`DELETE /education/v1/studio/uploads/{upload_id}` — scope `education:studio:upload`
-
+`DELETE /education/v1/studio/uploads/{upload_id}`
 Idempotent cancellation. Requires `Idempotency-Key`.
 
 **Errors:** 401, 403, 404, 429.
 
 ### Reconcile Upload Parts
 
-`POST /education/v1/studio/uploads/{upload_id}/reconcile` — scope `education:studio:upload`
-
+`POST /education/v1/studio/uploads/{upload_id}/reconcile`
 Reconcile against S3 `ListParts` after a client/process loss. Requires
 `Idempotency-Key`.
 
@@ -537,16 +527,14 @@ Reconcile against S3 `ListParts` after a client/process loss. Requires
 
 ### Complete an Upload
 
-`POST /education/v1/studio/uploads/{upload_id}/complete` — scope `education:studio:upload`
-
+`POST /education/v1/studio/uploads/{upload_id}/complete`
 Validate checksum/manifest and trigger processing. Requires `Idempotency-Key`.
 
 **Errors:** 400, 401, 403, 404, 409, 422, 429.
 
 ### Retry Upload Processing
 
-`POST /education/v1/studio/uploads/{upload_id}/processing-retries` — scope `education:studio:upload`
-
+`POST /education/v1/studio/uploads/{upload_id}/processing-retries`
 Retry processing for retryable errors only. Requires `Idempotency-Key`.
 
 **Errors:** 401, 403, 404, 409, 422, 429.
@@ -596,8 +584,7 @@ Answer a student question on your product. Requires `Idempotency-Key`.
 
 ### Get Sales Analytics
 
-`GET /education/v1/studio/analytics/sales` — scope `education:studio:analytics`
-
+`GET /education/v1/studio/analytics/sales`
 Sales summary with an optional paginated breakdown.
 
 | Query parameter | Type | Description |
@@ -609,8 +596,7 @@ Sales summary with an optional paginated breakdown.
 
 ### List Payout Statements
 
-`GET /education/v1/studio/payout-statements` — scope `education:studio:analytics`
-
+`GET /education/v1/studio/payout-statements`
 Vendor accounts-payable statements with gross / deductions / net. Cursor
 paginated.
 
@@ -651,7 +637,7 @@ All errors return a JSON body with a descriptive message:
 |--------|---------|
 | 400 | Bad request / validation error |
 | 401 | Missing or invalid session token |
-| 403 | Authenticated but not allowed (missing scope, not owner, no entitlement) |
+| 403 | Authenticated but not allowed (not a leader, not the owner, or no entitlement) |
 | 404 | Not found |
 | 409 | Conflict (duplicate, or state does not allow the operation) |
 | 412 | Precondition failed — stale `If-Match` ETag |

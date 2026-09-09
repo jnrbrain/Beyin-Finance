@@ -426,7 +426,7 @@ stored exchange/credential payloads are removed from the response.
         "exchange_order_status": "NEW",
         "execution_mode": "real_trade",
         "order_source": "signal",
-        "linked_signal_id": "sig_1784850000"
+        "signal_position_key": "pos_1784850000"
       }
     ],
     "count": 1,
@@ -445,9 +445,10 @@ Uses the same request fields as `binance_order`, but does **not** place an
 exchange order. The API applies exchange precision rules, validates TP/SL
 direction, checks minimum notional requirements and verifies the authenticated
 account's available balance before returning the irreversible-operation
-summary. OCO is currently supported for Spot only. A successful preview is not
-a balance reservation; execution repeats validation because market/account
-state can change.
+summary. Order placement is supported for **Spot only** — see the prohibition
+note on `binance_order` below. A successful preview is not a balance
+reservation; execution repeats validation because market/account state can
+change.
 
 **Response:**
 ```json
@@ -467,12 +468,17 @@ state can change.
     "available_balance": "0.010",
     "required_balance": "0.001",
     "balance_verified": true,
+    "market_type": "spot",
+    "leverage": 1,
     "order_source": "signal",
-    "linked_signal_id": "sig_1784850000",
+    "signal_position_key": "pos_1784850000",
     "irreversible": true
   }
 }
 ```
+
+`market_type` is always `"spot"` and `leverage` is always `1`; futures order
+placement is not permitted (see below).
 
 Use `price_precision` and `quantity_precision` from this response to format all price
 and quantity strings in the subsequent `binance_order` request.
@@ -504,9 +510,9 @@ Orders sent through Beyin Finance are routed to Binance from this static IP, so 
 | `entry_price` | string | No | Optional reference entry price (formatted to `price_precision`) |
 | `take_profit_price` | string | Yes | Take-profit limit price (formatted to `price_precision`) |
 | `stop_loss_price` | string | Yes | Stop-loss trigger price (formatted to `price_precision`) |
-| `market_type` | string | No | `"spot"` (default). Futures OCO is currently rejected. |
+| `market_type` | string | No | Must be `"spot"` (default). `"futures"` is rejected with HTTP 403 — futures order placement is prohibited (see note below). |
 | `order_source` | string | Yes | `"signal"` when entering an active Signal + Orders signal; `"independent"` for an order not linked to a signal |
-| `linked_signal_id` | string | Conditional | Opaque signal identifier required for `order_source=signal`; forbidden for independent orders |
+| `signal_position_key` | string | Conditional | Opaque signal position key required for `order_source=signal`; forbidden for independent orders |
 | `idempotency_key` | string | Yes | 16-128 letters, numbers, `_` or `-`; generate before preview and reuse for every retry |
 
 :::{warning}
@@ -523,8 +529,18 @@ If `quantity_precision: 3` → send `"0.001"` not `0.001` or `"0.0010"`.
 - During preview and immediately before a real submission, the API validates
   account balance and order constraints again.
 - The same idempotency key must be reused for retries of the same logical order.
-- For `order_source=signal`, provide the opaque linked signal identifier returned
+- For `order_source=signal`, provide the opaque `signal_position_key` returned
   by the signal endpoint.
+:::
+
+:::{warning}
+**Futures order placement is prohibited.** For legal and regulatory
+compliance, Beyin Finance does not send futures orders to the exchange. Only
+spot orders can be placed through `binance_order` / `binance_order_preview`; a
+request with `market_type="futures"` is rejected with HTTP 403. Futures
+**market data** (reading prices, klines, symbol info) remains available, and
+futures may still be used in backtesting — only live futures **order
+submission** is blocked.
 :::
 
 **Example body:**
@@ -538,7 +554,7 @@ If `quantity_precision: 3` → send `"0.001"` not `0.001` or `"0.0010"`.
   "stop_loss_price": "63000.00",
   "market_type": "spot",
   "order_source": "signal",
-  "linked_signal_id": "sig_1784850000",
+  "signal_position_key": "pos_1784850000",
   "idempotency_key": "idem_1784990000"
 }
 ```
@@ -559,7 +575,7 @@ If `quantity_precision: 3` → send `"0.001"` not `0.001` or `"0.0010"`.
       {"symbol": "BTCUSDT", "orderId": 111, "type": "LIMIT_MAKER"},
       {"symbol": "BTCUSDT", "orderId": 222, "type": "STOP_LOSS_LIMIT"}
     ],
-    "linked_signal_id": "sig_1784850000",
+    "signal_position_key": "pos_1784850000",
     "order_source": "signal",
     "idempotency_key": "idem_1784990000",
     "status": "submitted"
@@ -802,33 +818,34 @@ afterward.
 - 503: API key store unavailable (`"code": "api_key_store_unavailable"`). No key
   was created and no secret was issued; retry the request.
 
-### List API Keys
+### Get API Key Status
 
-`POST /user?request_type=api_key_list`
+`POST /user?request_type=api_key_status`
 
-Returns the authenticated user's active Developer API keys. Secrets are never
-returned by this operation.
+Returns the status of your single active Developer API key. Because each user
+may hold only one key, this reports whether a key exists and its metadata rather
+than a list. The secret is never returned by this operation.
 
 **Response:**
 ```json
 {
   "ok": true,
   "data": {
-    "keys": [
-      {
-        "api_key": "bf_key_a1b2c3d4e5f6a1b2c3d4e5f6",
-        "label": "Trading dashboard",
-        "permissions": ["read", "trade"],
-        "created_at": 1787098000
-      }
-    ],
+    "has_key": true,
+    "key": {
+      "api_key": "bf_key_a1b2c3d4e5f6a1b2c3d4e5f6",
+      "label": "Trading dashboard",
+      "permissions": ["read", "trade"],
+      "created_at": 1787098000
+    },
     "max_keys": 1
   }
 }
 ```
 
+When no key exists, `has_key` is `false` and `key` is `null`.
+
 **Errors:**
-- 403: `api_key_list requires JWT authentication`
 - 503: API key store unavailable (`"code": "api_key_store_unavailable"`);
   retry with backoff.
 
@@ -1069,7 +1086,9 @@ credentials and private metadata are not exposed.
 }
 ```
 
-**Errors:** 400 missing strategy name, 403 not owner, 404 not found.
+**Errors:** 400 missing strategy name, 404 not found. Strategies are looked up
+scoped to the authenticated owner, so a strategy you do not own is reported as
+404 (not 403).
 
 ### Edit Strategy
 
@@ -1104,7 +1123,7 @@ Editing a strategy creates a new version and triggers AI code regeneration. All 
 |-------|------|----------|-------------|
 | `strategy_name` | string | Yes | |
 | `visibility` | string | Yes | `"private"` or `"public"` |
-| `monthly_price_credits` | number | Yes* | 1-1000 (*required for public) — fixed MONTHLY subscription fee in credits, charged to subscribers each month (prepaid) |
+| `credits_per_signal` | number | Yes* | 0.01-10 (*required for public) — per-signal fee in credits, charged to a subscriber each time they receive a signal from this strategy |
 | `timeframe` | string | Yes* | (*required for public) e.g. `"4h"` |
 | `coins` | string[] | Yes* | (*required for public) coins to list |
 
@@ -1198,8 +1217,8 @@ request cannot be completed safely, no user-visible strategy data is removed.
 **Errors:**
 
 - 400: missing name or confirmation mismatch
-- 403: authenticated user is not the owner
-- 404: strategy not found
+- 404: strategy not found (a strategy you do not own is also reported as 404,
+  because the lookup is scoped to the authenticated owner)
 - 409: active marketplace listing must be unpublished first
 - 503: the deletion could not be completed safely; nothing was deleted
 
@@ -1327,7 +1346,7 @@ resolved server-side and never appear in the symbols this API accepts or returns
 | `timeframe` | string | Yes |
 | `asset_class` / `provider` / `market` / `exchange` | string | No |
 
-Each requested instrument runs as a separate chunk. Required for `marketplace_publish` with `signal_mode=signal_orders`.
+Each requested instrument runs as a separate chunk. Required for `marketplace_publish` with `signal_mode=full`.
 
 **Example body:**
 ```json
@@ -1573,8 +1592,9 @@ must continue while `has_more` is true even if a filtered page is empty.
 
 `GET /tradingdata?request_type=marketplace_browse&limit=50`
 
-Authentication is required. The caller identity is tracked for rate limiting,
-audit and entitlement checks.
+Guest-accessible: this endpoint may be called without authentication, subject to
+stricter IP-based rate limits. When credentials are supplied the caller identity
+is tracked for rate limiting, audit and entitlement checks.
 
 | Query parameter | Type | Required | Description |
 |-------|------|----------|-------------|
@@ -1586,7 +1606,7 @@ audit and entitlement checks.
 
 **Response:**
 ```json
-{"listings": [{"listing_id": "lst_abc123", "strategy_name": "emacross", "owner": "MT***A", "market_type": "spot", "timeframe": "4h", "signal_mode": "signal_orders", "listed_coins": ["BTC", "ETH"], "billing_period": "monthly", "monthly_price_credits": 20, "total_pnl_pct": 12.5, "win_rate_pct": 68.0, "subscriber_count": 5, "total_signals_delivered": 42}], "next_cursor": "base64...", "has_more": true}
+{"listings": [{"listing_id": "lst_abc123", "strategy_name": "emacross", "owner": "MT***A", "market_type": "spot", "timeframe": "4h", "signal_mode": "full", "listed_coins": ["BTC", "ETH"], "billing_period": "monthly", "monthly_price_credits": 20, "total_pnl_pct": 12.5, "win_rate_pct": 68.0, "subscriber_count": 5, "total_signals_delivered": 42}], "next_cursor": "base64...", "has_more": true}
 ```
 
 Send the returned cursor unchanged to fetch the next page. `has_more=false`
@@ -1597,8 +1617,9 @@ page sizes return HTTP 400 instead of silently restarting at page one.
 
 `GET /tradingdata?request_type=marketplace_listing&listing_id=lst_abc123`
 
-Authentication is required. The response masks unrelated owner data and returns
-caller-specific ownership and subscription state when applicable.
+Guest-accessible (stricter IP-based rate limits when unauthenticated). The
+response masks unrelated owner data and returns caller-specific ownership and
+subscription state when the caller is authenticated.
 
 For the authenticated caller's ownership and subscription state, use:
 
@@ -1620,7 +1641,7 @@ For the authenticated caller's ownership and subscription state, use:
     "market_type": "spot",
     "timeframe": "4h",
     "leverage": 1,
-    "signal_mode": "signal_orders",
+    "signal_mode": "full",
     "listed_coins": ["BTC", "ETH"],
     "billing_period": "monthly",
     "monthly_price_credits": 20,
@@ -1667,7 +1688,7 @@ The subscription ID is deterministic for the authenticated user and listing.
 The subscription is all-or-nothing; a failed request leaves no partial
 subscription.
 
-**Errors:** 403 license expired or active-strategy plan limit, 400 invalid coins / coin limit / self-subscribe, 409 duplicate subscription or binding conflict, 503 atomic commit unavailable.
+**Errors:** 400 invalid coins / coin limit / self-subscribe / listing not active, 402 insufficient credits (`"code": "insufficient_credits"` — your balance is below the listing's `monthly_price_credits`), 403 license expired or active-strategy plan limit, 404 listing not found, 409 duplicate subscription or binding conflict, 503 atomic commit unavailable.
 
 ### Unsubscribe
 
@@ -1693,7 +1714,7 @@ subscription.
 
 **Response:**
 ```json
-{"ok": true, "data": {"listings": [{"listing_id": "lst_abc123", "strategy_name": "emacross", "status": "active", "signal_mode": "signal_orders", "market_type": "spot", "timeframe": "4h", "listed_coins": ["BTC"], "billing_period": "monthly", "monthly_price_credits": 20, "subscriber_count": 5, "total_signals_delivered": 42, "total_credits_earned": 100.0, "total_pnl_pct": 12.5, "win_rate_pct": 68.0, "created_at": 1784000000}], "last_evaluated_key": "base64...", "has_more": true}}
+{"ok": true, "data": {"listings": [{"listing_id": "lst_abc123", "strategy_name": "emacross", "status": "active", "signal_mode": "full", "market_type": "spot", "timeframe": "4h", "listed_coins": ["BTC"], "billing_period": "monthly", "monthly_price_credits": 20, "subscriber_count": 5, "total_signals_delivered": 42, "total_credits_earned": 100.0, "total_pnl_pct": 12.5, "win_rate_pct": 68.0, "created_at": 1784000000}], "last_evaluated_key": "base64...", "has_more": true}}
 ```
 
 ### My Subscriptions
@@ -1719,14 +1740,14 @@ page. Malformed cursors and non-integer page sizes return HTTP 400.
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `strategy_key` | string | Yes | Lowercase alphanumeric |
+| `strategy_key` | string | Yes | Lowercase letters and numbers only |
 | `description` | string | No | Max 500 chars, no HTML |
-| `credits_per_signal` | number | Yes | 0.01 - 100.0 |
-| `signal_mode` | string | Yes | `"signal_orders"` or `"signal_only"` |
-| `requested_coins` | string[] | Yes | Coins to list |
+| `monthly_price_credits` | number | Yes | 1 - 1000 — fixed MONTHLY subscription fee in credits (billing is always monthly, prepaid) |
+| `signal_mode` | string | No | `"full"` (default) or `"signal_only"` |
+| `requested_coins` | string[] | Yes | Non-empty list of coins to list |
 
 :::{warning}
-Requirements for `signal_mode=signal_orders`: Must have a successful `full_range` backtest. Only coins with positive PnL and at least 10 trades are listed. Others are rejected.
+Requirements for `signal_mode=full`: Must have a successful `full_range` backtest. Only coins with positive PnL and at least 10 trades are listed; others are rejected (`negative_pnl`, `insufficient_trades`, or `no_data`). `signal_mode=signal_only` requires no backtest and lists every requested coin.
 :::
 
 Marketplace listing names are globally disambiguated by appending the creator's
@@ -1736,15 +1757,15 @@ create their own local `test1` strategy.
 
 **Example body:**
 ```json
-{"strategy_key": "emacross", "description": "EMA crossover for BTC", "credits_per_signal": 0.5, "signal_mode": "signal_orders", "requested_coins": ["BTC", "ETH", "SOL"]}
+{"strategy_key": "emacross", "description": "EMA crossover for BTC", "monthly_price_credits": 20, "signal_mode": "full", "requested_coins": ["BTC", "ETH", "SOL"]}
 ```
 
 **Response:**
 ```json
-{"ok": true, "data": {"listing_id": "lst_abc123", "strategy_name": "emacross_ABC123", "display_strategy_name": "emacross", "status": "active", "listed_coins": ["BTC", "ETH"], "rejected_coins": {"SOL": "negative_pnl", "DOGE": "insufficient_trades"}, "credits_per_signal": 0.5, "signal_mode": "signal_orders", "backtest_summary": {"BTC": {"pnl_pct": 12.5, "win_rate": 68.0, "trades": 42}}}}
+{"ok": true, "data": {"listing_id": "lst_abc123", "strategy_key": "emacross_ABC123", "strategy_name": "emacross_ABC123", "display_strategy_name": "emacross", "status": "active", "listed_coins": ["BTC", "ETH"], "rejected_coins": {"SOL": "negative_pnl", "DOGE": "insufficient_trades"}, "monthly_price_credits": 20, "billing_period": "monthly", "signal_mode": "full", "backtest_summary": {"BTC": {"pnl_pct": 12.5, "win_rate": 68.0, "trades": 42}}}}
 ```
 
-**Errors:** 400 no full_range backtest found, 400 no profitable coins.
+**Errors:** 400 invalid `strategy_key`, 400 invalid `signal_mode`, 400 `monthly_price_credits` out of range (1-1000), 400 empty `requested_coins`, 400 HTML in description, 400 no `full_range` backtest found (full mode), 400 no profitable coins, 404 strategy not found.
 
 ### Update Listing
 
@@ -1753,22 +1774,24 @@ create their own local `test1` strategy.
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `listing_id` | string | Yes | |
-| `credits_per_signal` | number | No | 0.01 - 100.0 |
-| `description` | string | No | Max 500 chars |
+| `monthly_price_credits` | number | No | 1 - 1000 — new monthly subscription fee |
+| `description` | string | No | Max 500 chars, no HTML |
 
 :::{danger}
-Price change cancels ALL active subscriptions and removes bindings.
+Changing the price cancels ALL active subscriptions and removes their bindings.
 :::
 
 **Example body:**
 ```json
-{"listing_id": "lst_abc123", "credits_per_signal": 1.0, "description": "Updated description"}
+{"listing_id": "lst_abc123", "monthly_price_credits": 30, "description": "Updated description"}
 ```
 
 **Response:**
 ```json
-{"ok": true, "data": {"listing_id": "lst_abc123", "updated_fields": ["credits_per_signal"], "subscriptions_cancelled": 3, "note": "Price changed 0.5 -> 1.0. All subscriptions cancelled."}}
+{"ok": true, "data": {"listing_id": "lst_abc123", "updated_fields": ["monthly_price_credits"], "subscriptions_cancelled": 3, "note": "Price changed 20 -> 30. All subscriptions cancelled."}}
 ```
+
+**Errors:** 400 nothing to update / invalid price / HTML in description, 400 listing not active, 403 not your listing, 404 listing not found.
 
 ### Unpublish Listing
 
@@ -1798,8 +1821,10 @@ Cancels all subscriptions, removes bindings, sets status to "removed".
 | `comment` | string | No | Max 500 chars |
 
 :::{note}
-Must have (or had) a subscription to review. One review per user per listing. Cannot review own listing.
+Must have (or had) a subscription to review. One review per user per listing. Cannot review own listing. If a comment is supplied it must be **at least 10 characters** and may **not contain URLs** (`http://`, `https://`, or `www.`); disallowed markup is rejected.
 :::
+
+**Errors:** 400 rating out of range / comment too short / URL in comment / disallowed content, 403 not a subscriber, 404 listing not found, 400 cannot review own listing.
 
 **Example body:**
 ```json
@@ -1815,8 +1840,9 @@ Must have (or had) a subscription to review. One review per user per listing. Ca
 
 `GET /tradingdata?request_type=marketplace_reviews&listing_id=lst_abc123&limit=20`
 
-Authentication is required. The caller identity is tracked for rate limiting,
-audit and entitlement checks.
+Guest-accessible: callable without authentication, subject to stricter IP-based
+rate limits. When credentials are supplied the caller identity is tracked for
+rate limiting, audit and entitlement checks.
 
 | Query parameter | Type | Required |
 |-------|------|----------|
@@ -1837,17 +1863,22 @@ next page. Malformed cursors and non-integer limits return HTTP 400.
 
 ## Trading Data
 
-Authentication is required for every Trading Data request. Some responses may
-still be license-gated by plan after the caller is identified.
+Most Trading Data requests accept an authenticated caller, but a subset is
+**guest-accessible** (callable without credentials, under stricter IP-based
+rate limits) — see the guest list in the [Authentication](#authentication)
+section. Endpoints not on that list require a tracked caller identity and
+return HTTP 401 without one. Some responses may still be license-gated by plan
+after the caller is identified (for example, `trend_signals` pages beyond the
+first).
 
 ### Trend Signals
 
-`GET /tradingdata?request_type=trend_signals&page=0&limit=10`
+`GET /tradingdata?request_type=trend_signals&page=0&limit=50`
 
 | Param | Type | Required | Description |
 |-------|------|----------|-------------|
 | `page` | number | No | Page number (default 0). Page > 0 requires license. |
-| `limit` | number | No | Items per page (default 10, max 10) |
+| `limit` | number | No | Items per page (default 50, max 50; values above 50 are clamped) |
 
 **Response:**
 ```json
@@ -1989,8 +2020,9 @@ stale-data warning when `_cache` is present.
 `GET /tradingdata?request_type=market_quote&symbol=BTCUSDT&market=spot`
 
 Returns a lightweight live quote for chart order preparation. This endpoint
-does not submit orders and does not require user Binance credentials, but the
-API caller must still be authenticated and tracked.
+does not submit orders and does not require user Binance credentials. It is
+guest-accessible (callable without authentication, under stricter IP-based
+rate limits); when credentials are supplied the caller is tracked.
 
 | Param | Type | Required | Description |
 |-------|------|----------|-------------|
@@ -2038,8 +2070,13 @@ and risk limits server-side.
 
 **Response:**
 ```json
-{"market_key": "BTCUSDT#1h", "item": {"market_key": "BTCUSDT#1h", "timestamp": 1784900000, "sentiment_score": 72, "trend": "BULLISH", "volatility": "MEDIUM"}, "count": 1}
+{"market_key": "BTCUSDT#1h", "item": {"market_key": "BTCUSDT#1h", "timestamp": 1784900000, "score": 72, "direction": "BULLISH"}, "count": 1}
 ```
+
+The product fields are `score` (integer sentiment score) and `direction`
+(e.g. `"BULLISH"` / `"BEARISH"` / `"NEUTRAL"`). The `item` object may carry
+additional internal fields; **treat any field not documented here as
+unstable and ignore it** — do not depend on its presence, name, or value.
 
 ### Sentiment History
 
@@ -2053,7 +2090,7 @@ and risk limits server-side.
 
 **Response:**
 ```json
-{"market_key": "BTCUSDT#1h", "items": [{"timestamp": 1784900000, "sentiment_score": 72, "trend": "BULLISH"}], "count": 50, "limit": 50, "has_more": true, "oldest_timestamp": 1784720000, "next_before_timestamp": 1784720000}
+{"market_key": "BTCUSDT#1h", "items": [{"timestamp": 1784900000, "score": 72, "direction": "BULLISH"}], "count": 50, "limit": 50, "has_more": true, "oldest_timestamp": 1784720000, "next_before_timestamp": 1784720000}
 ```
 
 ---
@@ -2064,7 +2101,8 @@ and risk limits server-side.
 
 `GET /`
 
-Authentication is required. Returns platform metadata such as banners and
+Public — no authentication required. This is the startup configuration the
+client fetches before login. Returns platform metadata such as banners and
 supported assets. Cache locally and ignore unknown fields.
 
 **Response:**
@@ -2094,8 +2132,8 @@ Cache this response; the available set changes infrequently.
 
 `GET /tradingdata?request_type=platform_notifications&limit=20`
 
-Authentication is required. Returns system announcements such as new features
-and maintenance messages.
+Guest-accessible (stricter IP-based rate limits when unauthenticated). Returns
+system announcements such as new features and maintenance messages.
 
 | Param | Type | Required | Description |
 |-------|------|----------|-------------|
@@ -2127,8 +2165,9 @@ and maintenance messages.
 
 `GET /tradingdata?request_type=community_chat&limit=50`
 
-Authentication is required to read visible community messages. Use the returned
-`next_cursor` as the `cursor` query parameter for the next page.
+Guest-accessible for reading visible community messages (stricter IP-based rate
+limits when unauthenticated). Use the returned `next_cursor` as the `cursor`
+query parameter for the next page.
 
 | Query parameter | Type | Required | Description |
 |-------|------|----------|-------------|
@@ -2198,8 +2237,9 @@ Followers are automatically notified through their configured channels.
 
 `GET /tradingdata?request_type=community_posts&limit=20`
 
-Authentication is required to read visible leader posts. Pagination uses the
-opaque `next_cursor` response value as the next request's `cursor`.
+Guest-accessible for reading visible leader posts (stricter IP-based rate
+limits when unauthenticated). Pagination uses the opaque `next_cursor` response
+value as the next request's `cursor`.
 The feed is returned newest-first by `created_at`. Clients must request bounded
 pages instead of loading the entire community feed at once.
 
@@ -2337,8 +2377,10 @@ for the next page; a malformed cursor returns HTTP 400.
 
 `GET /tradingdata?request_type=community_leaders&limit=25`
 
-Authentication is required. `is_following` is evaluated for the authenticated
-caller; follow and unfollow actions use the `/user` endpoints.
+Guest-accessible (stricter IP-based rate limits when unauthenticated).
+`is_following` is evaluated for the authenticated caller (and is `false` for
+guests); follow and unfollow actions use the `/user` endpoints and require
+authentication.
 
 | Query parameter | Type | Required | Description |
 |-------|------|----------|-------------|
@@ -2524,12 +2566,15 @@ session:
 
 | Condition | Status |
 |------|---------|
-| Binance API key or secret is not exactly 64 characters (`"Invalid API or Secret key"`) | 400 |
+| Binance API key or secret is not exactly 64 characters, on the credential-**linking** path (`"Invalid API or Secret key"`) | 400 |
+| Binance API key or secret is not exactly 64 characters, on the **login** path (`"Invalid API or Secret key"`) | 401 |
 | Binance returned no account ID while linking (`"Could not retrieve Binance ID from API"`) | 502 |
 | Login with a Binance identity that is not registered (`"Binance ID not found!"`) | 400 |
 | Login where the supplied Google identity does not match the stored one (`"Google ID mismatch!"`) | 409 |
 
-None of these responses carry a `code` marker.
+None of these responses carry a `code` marker. In particular, the 401 on the
+login path above is a business error, **not** a `session_expired` — clients must
+follow the rule above and only sign out on `"code": "session_expired"`.
 
 
 ### Backtest estimate modes
