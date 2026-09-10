@@ -2189,6 +2189,29 @@ system announcements such as new features and maintenance messages.
 {"notifications": [{"title": "New Feature", "body": "Marketplace is now live!", "type": "announcement", "timestamp": 1784900000}], "count": 1}
 ```
 
+### Get Changelog
+
+`GET /tradingdata?request_type=changelog&limit=50`
+
+Guest-accessible (stricter IP-based rate limits when unauthenticated). Returns
+the platform release history: the current and minimum-supported app versions
+plus dated release entries. Use it to render a "What's New" screen or to decide
+whether to prompt for an app update.
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `limit` | number | No | Max entries returned. Default 50, max 200 |
+| `since_version` | string | No | Only return entries at or above this app version (for example `0.0.6`) |
+
+**Response:**
+```json
+{"current_version": "0.0.6", "latest_build": 6, "min_supported_version": "0.0.1", "released": [{"version": "0.0.1", "date": "2026-08-12"}], "entries": [{"title": "Community image and comment fixes", "date": "2026-09-10", "items": ["The image is no longer cropped and opens full screen with pinch zoom."]}]}
+```
+
+An entry with a `null` `date` is an uncategorized note attached to the most
+recent release. When no changelog has been published yet, `entries` is an empty
+list and the version fields are `null`.
+
 ---
 
 ## Community

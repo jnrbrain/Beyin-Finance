@@ -84,6 +84,7 @@ class PublicReferenceScopeTests(unittest.TestCase):
         "status",
     }
     PUBLIC_TRADING_DATA_OPERATIONS = {
+        "changelog",
         "community_chat",
         "community_leaders",
         "community_posts",
