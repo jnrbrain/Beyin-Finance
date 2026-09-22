@@ -52,3 +52,41 @@ Resolution verified on 2026-07-29:
 
 The mobile UI now passes the coin filter correctly and presents explicit
 loading, unavailable, and empty states instead of an indefinite skeleton.
+
+## Backtest & strategy engine expansion — pending deployment
+
+Recorded 2026-09-21. The main repo added new backtest and strategy-generation
+capabilities in `AWS/BeyinFinanceBacktestOrchestrator.py`,
+`AWS/BeyinFinanceBacktestWorker.py`, and `AWS/BeyinFinanceStrategyGenerator.py`,
+and declared them in `contracts/strategy_backtest_v1.json`. As of this note the
+deployed Lambdas still predate the change (Orchestrator `LastModified`
+2026-09-19), so these are **NOT live** and are intentionally **absent from the
+public developer reference** (`endpoints.md`) per the not-yet-live rule.
+
+Add to `endpoints.md` ONLY AFTER the carrying Lambda versions are deployed and
+verified:
+
+1. Backtest actions (read-only, post-process a completed `job_id`; not subject
+   to `backtest_concurrency_limit`, no credit charge):
+   - `POST /backtest?action=walk_forward` — field `wf_windows` (int 2..20,
+     default 4). Returns per-window return/drawdown/win-rate + a
+     robust/mixed/fragile verdict.
+   - `POST /backtest?action=monte_carlo` — field `mc_runs` (int 100..5000,
+     default 1000). Returns return/drawdown percentiles + probability_of_profit.
+2. Portfolio / `resimulate_divide` sizing fields: `position_mode`
+   (`compound` default | `fixed` | `risk_pct`), `fixed_amount` (when fixed),
+   `risk_pct` (when risk_pct). Also surfaced in the portfolio result.
+   NOTE: the same change moves the portfolio `initial_balance` DEFAULT from 100
+   to 1000 — update the documented default when it ships.
+3. `strategy_generate` fields: `exit_type`
+   (`fixed`|`trailing`|`time`|`indicator`|`scaling`, default fixed),
+   `trail_pct`, `time_exit_candles`, `entry_type`
+   (`single`|`dca`|`grid`, default single), `dca_steps`, `dca_step_pct`.
+   All optional and backward compatible (omitted → fixed/single/0).
+
+Sibling surfaces to update in the SAME release (tracked so nothing drifts):
+- Public website `Developers.tsx` backtest sample list (add walk_forward,
+  monte_carlo; re-check the group `count`).
+- Website marketing/blog "three backtest modes" copy (now understated: trailing
+  / time / indicator / scaling exits, DCA / grid entries, risk-% sizing,
+  walk-forward + Monte Carlo robustness).
