@@ -307,8 +307,10 @@ No body required.
         "name": "emacross",
         "status": "active",
         "candle_count": 32,
-        "market_type": "spot",
-        "leverage": 1
+        "direction_agnostic": true,
+        "signal_mode": "signal_orders",
+        "version": 1,
+        "visibility": "private"
       }
     }
   }
@@ -1035,40 +1037,94 @@ immediately so you can issue a replacement.
 
 `POST /user?request_type=strategy_generate`
 
+A strategy is **direction-agnostic** and **timeframe-agnostic**: it captures
+only the trading logic (entry, exit and — for order strategies — the entry
+engine). The market (spot/futures), side (long/short), leverage and timeframe
+are chosen later, at [backtest](#run-backtest) time, so one strategy can be
+evaluated any way without regenerating.
+
+#### Common fields (every strategy)
+
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `strategy_name` | string | Yes | Unique only within the authenticated user's account; lowercase alphanumeric, no spaces, min 4 chars, max 20 chars, at least 1 letter (`^[a-z0-9]+$`) |
-| `signal_mode` | string | Yes | `"signal_orders"` or `"signal_only"` |
+| `signal_mode` | string | Yes | `"signal_orders"` (entry + managed exit) or `"signal_only"` (entry signal only, no TP/SL) |
 | `entry_condition` | string | Yes | Entry condition in natural language (max 5000 chars) |
-| `exit_type` | string | No | `"fixed"` (default), `"trailing"`, `"time"`, `"indicator"`, `"scaling"`. Decides which condition fields are required (see below). Applies only to `signal_orders`. |
-| `tp_condition` | string | Cond. | Take-profit condition. Required when `exit_type` is `"fixed"` or `"scaling"`. Max 2000 chars. |
-| `sl_condition` | string | Cond. | Stop-loss condition. Required for every `signal_orders` exit type except when the engine fully manages the exit. Max 2000 chars. |
-| `exit_condition` | string | Cond. | Indicator-based exit rule, re-evaluated each candle. Required when `exit_type` is `"indicator"` (replaces the fixed take-profit). Max 2000 chars. |
-| `trail_pct` | number | Cond. | Trailing-stop distance (% of price), 0.1–50. Required when `exit_type` is `"trailing"`. |
-| `time_exit_candles` | int | Cond. | Force-close after N candles, 1–5000. Required when `exit_type` is `"time"`. |
-| `entry_type` | string | No | `"single"` (default) or `"dca"` (staged/averaged entry). `"grid"` is accepted for backward compatibility and mapped to `"dca"`. Applies only to `signal_orders`. |
-| `dca_steps` | int | Cond. | Number of staged entries, 1–50. Required when `entry_type` is `"dca"`. |
-| `dca_step_pct` | number | Cond. | % price gap between staged entries, 0.1–50. Required when `entry_type` is `"dca"`. |
-| `direction_agnostic` | bool | No | Defaults to `true`. Direction-agnostic strategies do NOT bake a market or side — the same strategy is run as spot/futures and long/short depending on the **backtest** request (see [Run Backtest](#run-backtest)). |
-| `market_type` | string | Legacy | `"spot"` or `"futures"`. Deprecated at creation — market type is chosen at backtest time. Honoured only for legacy (non-agnostic) strategies. |
-| `position_side` | string | Legacy | `"long"` or `"short"`. Deprecated at creation — side is chosen at backtest time. Sending it forces the legacy direction-baked path (`direction_agnostic=false`). |
-| `timeframe` | string | No | `1m,3m,5m,15m,30m,1h,2h,4h,1d`. Optional — a strategy is timeframe-agnostic; the timeframe is chosen at backtest/binding time. |
+
+`signal_only` strategies stop here — they emit an entry signal only, so no exit
+or entry-engine fields apply. `signal_orders` strategies add an **exit type**
+and, optionally, an **entry type** as described below.
+
+#### Exit type (`signal_orders` only)
+
+`exit_type` selects how the position is closed and therefore which condition
+fields are required. Default is `"fixed"`. Each type takes exactly the fields in
+its table — send only those.
+
+**`exit_type: "fixed"`** — fixed take-profit and stop-loss.
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `tp_condition` | string | Yes | Take-profit condition (max 2000 chars) |
+| `sl_condition` | string | Yes | Stop-loss condition (max 2000 chars) |
+
+**`exit_type: "scaling"`** — scale out of the position across targets between TP and SL.
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `tp_condition` | string | Yes | Final take-profit target (max 2000 chars) |
+| `sl_condition` | string | Yes | Stop-loss condition (max 2000 chars) |
+
+**`exit_type: "trailing"`** — stop trails price in the profit direction; no fixed TP.
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `trail_pct` | number | Yes | Trailing-stop distance as % of price, 0.1–50 |
+| `sl_condition` | string | Yes | Initial stop-loss condition (max 2000 chars) |
+
+**`exit_type: "time"`** — force-close after a fixed number of candles.
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `time_exit_candles` | int | Yes | Force-close after N candles, 1–5000 |
+| `sl_condition` | string | Yes | Stop-loss condition (max 2000 chars) |
+
+**`exit_type: "indicator"`** — exit rule re-evaluated each candle (replaces a fixed TP).
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `exit_condition` | string | Yes | Indicator-based exit rule in natural language (max 2000 chars) |
+| `sl_condition` | string | Yes | Stop-loss condition (max 2000 chars) |
+
+#### Entry type (`signal_orders` only)
+
+`entry_type` selects how the position is entered. Default is `"single"`.
+
+**`entry_type: "single"`** — the full position is opened in one order. No extra fields.
+
+**`entry_type: "dca"`** — staged/averaged entry (scale in with safety orders).
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `dca_steps` | int | Yes | Number of staged entries, 1–50 |
+| `dca_step_pct` | number | Yes | % price gap between staged entries, 0.1–50 |
 
 :::{note}
-Strategies are always created as private. Use `strategy_visibility` to make public after a successful full_range backtest.
-
-Market type (spot/futures), leverage and side (long/short) are no longer part of
-strategy creation — a strategy is **direction-agnostic** and those are selected
-when you backtest it. This lets one strategy be evaluated spot or futures, long
-or short, without regenerating.
+Strategies are always created as private. Use `strategy_visibility` to make
+public after a successful full_range backtest.
 :::
 
 **Cost:** 1 credit, charged upfront. **Fully refunded** if generation fails, so
 a failed attempt costs nothing.
 
-**Example body:**
+**Example body (fixed exit, single entry):**
 ```json
 {"strategy_name": "emacross", "signal_mode": "signal_orders", "exit_type": "fixed", "entry_condition": "EMA 9 crosses above EMA 21", "tp_condition": "Reaches a 3% profit target", "sl_condition": "Risk 2% below entry"}
+```
+
+**Example body (trailing exit, DCA entry):**
+```json
+{"strategy_name": "trendride", "signal_mode": "signal_orders", "exit_type": "trailing", "trail_pct": 2.5, "entry_condition": "Price breaks above the 20-period high", "sl_condition": "Risk 3% below entry", "entry_type": "dca", "dca_steps": 3, "dca_step_pct": 1.5}
 ```
 
 **Response:**
@@ -1097,9 +1153,10 @@ credentials and private metadata are not exposed.
     "strategy_name": "emacross",
     "status": "active",
     "version": 3,
-    "market_type": "spot",
     "signal_mode": "signal_orders",
-    "timeframe": "4h",
+    "direction_agnostic": true,
+    "exit_type": "fixed",
+    "entry_type": "single",
     "entry_condition": "EMA 12 crosses above EMA 26",
     "tp_condition": "Price reaches +5%",
     "sl_condition": "Price drops -3%",
@@ -1113,6 +1170,12 @@ credentials and private metadata are not exposed.
 }
 ```
 
+The response also carries `exit_condition`, `trail_pct`, `time_exit_candles`,
+`dca_steps` and `dca_step_pct` when the strategy's `exit_type`/`entry_type` uses
+them, so a client can render the exact fields the strategy was built with.
+`timeframe` is present only if one was chosen; it is otherwise omitted because a
+strategy is timeframe-agnostic.
+
 **Errors:** 400 missing strategy name, 404 not found. Strategies are looked up
 scoped to the authenticated owner, so a strategy you do not own is reported as
 404 (not 403).
@@ -1121,20 +1184,44 @@ scoped to the authenticated owner, so a strategy you do not own is reported as
 
 `POST /user?request_type=strategy_edit`
 
+Two modes, selected by `mode`:
+
+- **`rewrite`** — re-enter the strategy's conditions and regenerate the same
+  strategy. Send only the condition fields the strategy's `exit_type` uses
+  (the exit type itself is fixed at creation): `fixed`/`scaling` take
+  `tp_condition` + `sl_condition`, `indicator` takes `exit_condition` +
+  `sl_condition`, `trailing`/`time` take `sl_condition`. `exit_type` and
+  `entry_type` are preserved from the stored strategy.
+- **`ai_revise`** — send a free-text `revision_prompt` (min 20 chars) describing
+  the change; the generator revises the existing code. Conditions are left
+  unchanged unless you also send them.
+
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `strategy_name` | string | Yes | Existing strategy you own |
+| `mode` | string | No | `"rewrite"` (re-enter conditions) or `"ai_revise"` (free-text change request). |
 | `entry_condition` | string | No | New entry condition |
-| `tp_condition` | string | No | New take profit |
-| `sl_condition` | string | No | New stop loss |
+| `tp_condition` | string | Cond. | New take-profit. Required (with `sl_condition`) when the strategy's `exit_type` is `"fixed"` or `"scaling"`. |
+| `sl_condition` | string | Cond. | New stop-loss. Required for every order strategy exit type. |
+| `exit_condition` | string | Cond. | New indicator-exit rule. Required when the strategy's `exit_type` is `"indicator"`. |
+| `revision_prompt` | string | Cond. | Free-text change request, 20–2000 chars. Required for `mode: "ai_revise"`; rejected for `mode: "rewrite"`. |
+
+The required condition fields mirror [Create Strategy](#create-strategy): the
+strategy's `exit_type` — not the signal mode alone — decides which of
+`tp_condition` / `sl_condition` / `exit_condition` must be present.
 
 :::{warning}
 Editing a strategy creates a new version and triggers AI code regeneration. All marketplace subscribers of this strategy will be automatically unsubscribed.
 :::
 
-**Example body:**
+**Example body (rewrite a fixed-exit strategy):**
 ```json
-{"strategy_name": "emacross", "entry_condition": "EMA 12 crosses above EMA 26", "tp_condition": "Price reaches +5%", "sl_condition": "Price drops -3%"}
+{"strategy_name": "emacross", "mode": "rewrite", "entry_condition": "EMA 12 crosses above EMA 26", "tp_condition": "Price reaches +5%", "sl_condition": "Price drops -3%"}
+```
+
+**Example body (AI revise):**
+```json
+{"strategy_name": "emacross", "mode": "ai_revise", "revision_prompt": "Tighten the stop-loss and add a volume filter to the entry."}
 ```
 
 **Response:**

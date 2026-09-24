@@ -21,8 +21,8 @@ class PublicReferenceScopeTests(unittest.TestCase):
         "account_info",
         "active_signals",
         "api_key_generate",
-        "api_key_list",
         "api_key_revoke",
+        "api_key_status",
         "available_coins",
         "backtest_history",
         "binance_balance",
@@ -160,6 +160,9 @@ class PublicReferenceScopeTests(unittest.TestCase):
         "backtest_concurrency_limit",
         "strategy_generation_in_progress",
         "backtest_capacity_exceeded",
+        # A documented request/response field of binance_order &
+        # order_history — part of the public contract, not an internal leak.
+        "signal_position_key",
     }
 
     def test_public_docs_do_not_expose_internal_system_details(self):
@@ -177,7 +180,6 @@ class PublicReferenceScopeTests(unittest.TestCase):
             "queued_workers",
             "chunks_total",
             "chunks_done",
-            "signal_position_key",
             "local_order_key",
             "request_hash",
             "BFOCO",

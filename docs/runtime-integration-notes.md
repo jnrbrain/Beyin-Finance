@@ -81,18 +81,18 @@ verified:
 3. DONE (documented in endpoints.md Create Strategy + Backtest): `strategy_generate`
    fields `exit_type` (`fixed`|`trailing`|`time`|`indicator`|`scaling`, default
    fixed), `trail_pct`, `time_exit_candles`, `exit_condition` (required for
-   indicator exit), `entry_type` (`single`|`dca`, default single; legacy `grid`
-   is mapped to `dca`), `dca_steps`, `dca_step_pct`, and `direction_agnostic`
+   indicator exit), `entry_type` (`single`|`dca`, default single),
+   `dca_steps`, `dca_step_pct`, and `direction_agnostic`
    (default true). Required condition fields now depend on `exit_type`
    (fixed/scaling → tp+sl; trailing/time → sl; indicator → exit_condition+sl).
-   Market type, leverage and side are NO LONGER strategy-creation fields — a
+   Market type, leverage and side are NOT strategy-creation fields — a
    strategy is direction-agnostic and these are chosen on the backtest launch
-   actions (`market_type`, `leverage`, `position_side`). `market_type` /
-   `position_side` at creation are legacy-only.
+   actions (`market_type`, `leverage`, `position_side`). Strategy creation and
+   edit only take the trading logic; they never accept a market or side.
 
 Sibling surfaces to update in the SAME release (tracked so nothing drifts):
 - Public website `Developers.tsx` backtest sample list (add walk_forward,
   monte_carlo; re-check the group `count`).
 - Website marketing/blog "three backtest modes" copy (now understated: trailing
-  / time / indicator / scaling exits, DCA / grid entries, risk-% sizing,
+  / time / indicator / scaling exits, single / DCA entries, risk-% sizing,
   walk-forward + Monte Carlo robustness).
