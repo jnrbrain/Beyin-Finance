@@ -1038,16 +1038,29 @@ immediately so you can issue a replacement.
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `strategy_name` | string | Yes | Unique only within the authenticated user's account; lowercase alphanumeric, no spaces, min 4 chars, max 20 chars, at least 1 letter (`^[a-z0-9]+$`) |
-| `market_type` | string | Yes | `"spot"` or `"futures"` |
 | `signal_mode` | string | Yes | `"signal_orders"` or `"signal_only"` |
-| `timeframe` | string | Yes | `1m,3m,5m,15m,30m,1h,2h,4h,1d` |
-| `entry_condition` | string | Yes | Entry condition in natural language |
-| `tp_condition` | string | Yes* | Take profit (*required for signal_orders) |
-| `sl_condition` | string | Yes* | Stop loss (*required for signal_orders) |
-| `position_side` | string | Conditional | `"long"` or `"short"`. Required when `market_type` is `"futures"` AND `signal_mode` is `"signal_orders"`. Ignored otherwise. Determines signal direction for futures strategies. |
+| `entry_condition` | string | Yes | Entry condition in natural language (max 5000 chars) |
+| `exit_type` | string | No | `"fixed"` (default), `"trailing"`, `"time"`, `"indicator"`, `"scaling"`. Decides which condition fields are required (see below). Applies only to `signal_orders`. |
+| `tp_condition` | string | Cond. | Take-profit condition. Required when `exit_type` is `"fixed"` or `"scaling"`. Max 2000 chars. |
+| `sl_condition` | string | Cond. | Stop-loss condition. Required for every `signal_orders` exit type except when the engine fully manages the exit. Max 2000 chars. |
+| `exit_condition` | string | Cond. | Indicator-based exit rule, re-evaluated each candle. Required when `exit_type` is `"indicator"` (replaces the fixed take-profit). Max 2000 chars. |
+| `trail_pct` | number | Cond. | Trailing-stop distance (% of price), 0.1–50. Required when `exit_type` is `"trailing"`. |
+| `time_exit_candles` | int | Cond. | Force-close after N candles, 1–5000. Required when `exit_type` is `"time"`. |
+| `entry_type` | string | No | `"single"` (default) or `"dca"` (staged/averaged entry). `"grid"` is accepted for backward compatibility and mapped to `"dca"`. Applies only to `signal_orders`. |
+| `dca_steps` | int | Cond. | Number of staged entries, 1–50. Required when `entry_type` is `"dca"`. |
+| `dca_step_pct` | number | Cond. | % price gap between staged entries, 0.1–50. Required when `entry_type` is `"dca"`. |
+| `direction_agnostic` | bool | No | Defaults to `true`. Direction-agnostic strategies do NOT bake a market or side — the same strategy is run as spot/futures and long/short depending on the **backtest** request (see [Run Backtest](#run-backtest)). |
+| `market_type` | string | Legacy | `"spot"` or `"futures"`. Deprecated at creation — market type is chosen at backtest time. Honoured only for legacy (non-agnostic) strategies. |
+| `position_side` | string | Legacy | `"long"` or `"short"`. Deprecated at creation — side is chosen at backtest time. Sending it forces the legacy direction-baked path (`direction_agnostic=false`). |
+| `timeframe` | string | No | `1m,3m,5m,15m,30m,1h,2h,4h,1d`. Optional — a strategy is timeframe-agnostic; the timeframe is chosen at backtest/binding time. |
 
 :::{note}
 Strategies are always created as private. Use `strategy_visibility` to make public after a successful full_range backtest.
+
+Market type (spot/futures), leverage and side (long/short) are no longer part of
+strategy creation — a strategy is **direction-agnostic** and those are selected
+when you backtest it. This lets one strategy be evaluated spot or futures, long
+or short, without regenerating.
 :::
 
 **Cost:** 1 credit, charged upfront. **Fully refunded** if generation fails, so
@@ -1055,7 +1068,7 @@ a failed attempt costs nothing.
 
 **Example body:**
 ```json
-{"strategy_name": "emacross", "market_type": "spot", "signal_mode": "signal_orders", "timeframe": "4h", "entry_condition": "EMA 9 crosses above EMA 21", "tp_condition": "Price reaches +3%", "sl_condition": "Price drops -2%"}
+{"strategy_name": "emacross", "signal_mode": "signal_orders", "exit_type": "fixed", "entry_condition": "EMA 9 crosses above EMA 21", "tp_condition": "Reaches a 3% profit target", "sl_condition": "Risk 2% below entry"}
 ```
 
 **Response:**
@@ -1063,7 +1076,7 @@ a failed attempt costs nothing.
 {"ok": true, "data": {"strategy_name": "emacross", "version": 1, "signal_mode": "signal_orders", "status": "generating", "cost_upfront": 1.0, "cost_refunded_on_failure": 1.0}}
 ```
 
-**Errors:** 400 if strategy_name is invalid (too short, too long, or contains invalid characters); 400 if `position_side` is required but missing (`"position_side is required for futures signal_orders strategies"`); 400 if `position_side` value is invalid (`"position_side must be 'long' or 'short'"`); 402 if insufficient credits; 409 if the authenticated user already has a strategy with the same name; 429 with `reason: "strategy_generation_in_progress"` (plus `Retry-After`) if you already have the maximum number of generations running — wait for one to finish, then retry. See the [Common `reason` codes](#common-reason-codes) table.
+**Errors:** 400 if strategy_name is invalid; 400 if a condition required by the chosen `exit_type` is missing (e.g. `"tp_condition and sl_condition are required for this exit type"`, `"exit_condition is required for indicator exit"`); 400 if `exit_type`/`entry_type` value is invalid; 402 if insufficient credits; 409 if the authenticated user already has a strategy with the same name; 429 with `reason: "strategy_generation_in_progress"` (plus `Retry-After`) if you already have the maximum number of generations running. See the [Common `reason` codes](#common-reason-codes) table.
 
 ### Get Strategy Detail
 
@@ -1260,6 +1273,15 @@ data: `us_stocks` (`AAPL`, `NVDA`, `TSLA`, `MSFT`, `AMZN`, `META`), `etfs`
 (`GOLD`, `SILVER`, `OIL`). Provider-specific symbols such as `GC=F` are kept
 resolved server-side and never appear in the symbols this API accepts or returns.
 
+**Execution model (spot/futures, leverage, side) is chosen here, at backtest
+time.** Strategies are direction-agnostic (see [Create Strategy](#create-strategy)),
+so the `market_type`, `leverage` and `position_side` fields on the launch
+actions (`run`, `full_range`, `portfolio`) decide how the same strategy is
+executed — spot or futures, long or short. Omitting them falls back to a legacy
+strategy's stored values (spot + long by default). `market` here remains the
+**dataset** namespace (which candles to read), which is a separate concept from
+`market_type` (spot vs futures execution).
+
 ### Estimate Cost
 
 `POST /backtest?action=estimate`
@@ -1328,6 +1350,9 @@ resolved server-side and never appear in the symbols this API accepts or returns
 | `timeframe` | string | Yes | | e.g. `"4h"` |
 | `start_ts` | number | Yes | | Start unix timestamp |
 | `end_ts` | number | Yes | | End unix timestamp |
+| `market_type` | string | No | spot | `"spot"` or `"futures"`. Execution model for a direction-agnostic strategy, chosen here at backtest time. Spot forces 1x leverage and long-only. Falls back to a legacy strategy's stored market type when omitted. |
+| `leverage` | number | No | 3 (futures) | Futures leverage, 1–125. Ignored (forced to 1) when `market_type` is `"spot"`. |
+| `position_side` | string | No | long | `"long"` or `"short"`. Trade direction passed to the strategy's runtime `side` parameter. Forced to `"long"` for spot. Alias: `side`. |
 | `commission` | number | No | 0.2 | Commission % |
 | `position_pct` | number | No | 100 | Position size % |
 | `min_gap_candles` | number | No | 4 | Min candles between signals |

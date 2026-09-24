@@ -78,11 +78,17 @@ verified:
    `risk_pct` (when risk_pct). Also surfaced in the portfolio result.
    NOTE: the same change moves the portfolio `initial_balance` DEFAULT from 100
    to 1000 — update the documented default when it ships.
-3. `strategy_generate` fields: `exit_type`
-   (`fixed`|`trailing`|`time`|`indicator`|`scaling`, default fixed),
-   `trail_pct`, `time_exit_candles`, `entry_type`
-   (`single`|`dca`|`grid`, default single), `dca_steps`, `dca_step_pct`.
-   All optional and backward compatible (omitted → fixed/single/0).
+3. DONE (documented in endpoints.md Create Strategy + Backtest): `strategy_generate`
+   fields `exit_type` (`fixed`|`trailing`|`time`|`indicator`|`scaling`, default
+   fixed), `trail_pct`, `time_exit_candles`, `exit_condition` (required for
+   indicator exit), `entry_type` (`single`|`dca`, default single; legacy `grid`
+   is mapped to `dca`), `dca_steps`, `dca_step_pct`, and `direction_agnostic`
+   (default true). Required condition fields now depend on `exit_type`
+   (fixed/scaling → tp+sl; trailing/time → sl; indicator → exit_condition+sl).
+   Market type, leverage and side are NO LONGER strategy-creation fields — a
+   strategy is direction-agnostic and these are chosen on the backtest launch
+   actions (`market_type`, `leverage`, `position_side`). `market_type` /
+   `position_side` at creation are legacy-only.
 
 Sibling surfaces to update in the SAME release (tracked so nothing drifts):
 - Public website `Developers.tsx` backtest sample list (add walk_forward,
