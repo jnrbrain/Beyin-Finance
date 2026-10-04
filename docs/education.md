@@ -18,6 +18,19 @@ This reference covers the surface relevant to **students**, **instructors**
 moderation, review-queue, and back-office operations are out of scope and are
 not part of the public API.
 
+```{admonition} Availability — not yet commercially live
+:class: warning
+
+The Education API is **implemented and documented for integration planning**,
+but the commerce path (checkout, purchase, and payout) is **not yet
+operationally enabled**. The payment provider capability is still
+`configuration_pending` (Shopier), there is no production commerce server
+provisioned, and public availability is subject to go-live. Treat the
+checkout/purchase/payout flows described below as **planned/not-live** until an
+operational go-live is announced; do not integrate them against production as if
+they were a live public endpoint.
+```
+
 ---
 
 ## Authentication

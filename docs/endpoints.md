@@ -31,6 +31,15 @@ A missing or invalid credential returns HTTP 401. Every `/tradingdata`, `/user`,
 and `/backtest` operation in this reference requires a tracked caller identity
 unless the endpoint is explicitly part of login or registration.
 
+> **Scope — first-party authentication flows are not a public integrator surface.**
+> The first-party sign-in and account-linking flows — login, registration,
+> Google linking, and Telegram linking — are owned by the official Beyin Finance
+> clients (mobile app, web, Telegram bot) and are intentionally **not documented
+> as public integrator endpoints**. Their absence from this reference is by
+> design, not an omission. Integrators authenticate with Developer API
+> credentials (`X-API-Key` + `X-API-Secret`), not by driving the first-party
+> login/registration flows.
+
 > **Note:** Some Trading Data endpoints allow unauthenticated (guest) access
 > with stricter IP-based rate limits. Guest-accessible endpoints include:
 > `trend_signals`, `trend_signal_detail`, `trend_indicator`,
@@ -1761,6 +1770,12 @@ is tracked for rate limiting, audit and entitlement checks.
 | `limit` | number | Default 50, min 1, max 100 |
 | `cursor` | string | Opaque cursor returned by the previous page |
 
+> **Note:** The public contract page size is capped at **100**. The currently
+> deployed handler clamps `limit` internally at a higher value (1000); this is a
+> known code/doc divergence to be closed on the code side. Integrators must treat
+> **100** as the maximum supported page size. See `runtime-integration-notes.md`
+> for the recorded divergence.
+
 **Response:**
 ```json
 {"listings": [{"listing_id": "lst_abc123", "strategy_name": "emacross", "owner": "MT***A", "market_type": "spot", "timeframe": "4h", "signal_mode": "full", "listed_coins": ["BTC", "ETH"], "billing_period": "monthly", "monthly_price_credits": 20, "total_pnl_pct": 12.5, "win_rate_pct": 68.0, "subscriber_count": 5, "total_signals_delivered": 42}], "next_cursor": "base64...", "has_more": true}
@@ -2852,7 +2867,7 @@ Returns all trend break signals the authenticated user is currently tracking.
 }
 ```
 
-Response items use the same schema as `trend_signals` — full signal data including klines and trend lines. Internal fields (`gsi_pk`, `ttl`, `telegram_link`, `tracked_users`) are stripped from the response.
+Response items share the `trend_signals` schema for metadata and trend lines, but the public detail response **omits the raw `klines_data` snapshot**: it returns only the two `low_trend` anchor points needed to draw the trend line, not the full candle series. See `runtime-integration-notes.md` §1 for the observed live shape. The `klines_data` field above is illustrative of the stored record; do not rely on it being populated in the public response. Internal fields (`gsi_pk`, `ttl`, `telegram_link`, `tracked_users`) are stripped from the response.
 
 **Errors:**
 - 401: Authentication required (`"code": "session_expired"`)

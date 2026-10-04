@@ -42,16 +42,40 @@ Verified on 2026-07-29:
 
 Impact: the mobile Marketplace Bots section cannot complete its initial read.
 
-Resolution verified on 2026-07-29:
+Resolution — in source (live confirmation still pending):
 
-1. `BeyinFinanceUserAPI` version `2` adds `marketplace_browse` to the public
-   Trading Data allow-list and routes it to the active-listings `status-index`.
-2. `GET /tradingdata?request_type=marketplace_browse&coin=SPYB` now returns
-   HTTP 200 with `{ "listings": [], "count": 0, "has_more": false }`.
-3. Publish at least one active listing to validate the non-empty catalog path.
+1. **In source (verified):** `BeyinFinanceUserAPI` adds `marketplace_browse` to
+   the public Trading Data allow-list and provides a browse handler. The
+   allow-list entry is in `AWS/src/user_api/00_prelude/30_trading_data.py` (both
+   the authenticated and guest sets) and the handler
+   `_td_handle_marketplace_browse` is in
+   `AWS/src/user_api/00_prelude/40_public_klines.py`;
+   `contracts/endpoint_traceability.json` lists `marketplace_browse` as
+   `screen_connected` under `trading_data`.
+2. **Response shape (from source):**
+   `GET /tradingdata?request_type=marketplace_browse&coin=SPYB` is expected to
+   return HTTP 200 with `{ "listings": [], "count": 0, "has_more": false }`
+   while `BeyinFinanceMarketplaceListings` holds zero active listings. Whether
+   the fix is live in the deployed UserAPI is a **runtime fact not confirmable
+   from code in this pass**; treat the 405→200 transition as "verified in
+   source / pending live confirmation", not a confirmed current live fact.
+3. **Still unvalidated:** the non-empty catalog path. The listings table is
+   empty, so a browse against real listings has not been exercised. Publish at
+   least one active listing to validate it.
 
 The mobile UI now passes the coin filter correctly and presents explicit
 loading, unavailable, and empty states instead of an indefinite skeleton.
+
+### `marketplace_browse` limit divergence (code vs public docs)
+
+The deployed browse handler `_td_handle_marketplace_browse`
+(`AWS/src/user_api/00_prelude/40_public_klines.py`) clamps `limit` internally at
+**1000** (`max(1, min(_td_to_int(params.get("limit", 1000), 1000), 1000))`),
+while the public reference `endpoints.md` advertises a maximum page size of
+**100**. This is a known code/doc divergence: the public contract value (100)
+is the one integrators must follow, and the larger internal cap should be
+brought down on the code side in a later change. Do not raise the public
+documented cap to 1000.
 
 ## Backtest & strategy engine expansion — pending deployment
 
