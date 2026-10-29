@@ -66,16 +66,13 @@ Resolution — in source (live confirmation still pending):
 The mobile UI now passes the coin filter correctly and presents explicit
 loading, unavailable, and empty states instead of an indefinite skeleton.
 
-### `marketplace_browse` limit divergence (code vs public docs)
+### `marketplace_browse` page-size contract
 
-The deployed browse handler `_td_handle_marketplace_browse`
-(`AWS/src/user_api/00_prelude/40_public_klines.py`) clamps `limit` internally at
-**1000** (`max(1, min(_td_to_int(params.get("limit", 1000), 1000), 1000))`),
-while the public reference `endpoints.md` advertises a maximum page size of
-**100**. This is a known code/doc divergence: the public contract value (100)
-is the one integrators must follow, and the larger internal cap should be
-brought down on the code side in a later change. Do not raise the public
-documented cap to 1000.
+The public browse handler `_td_handle_marketplace_browse`
+(`AWS/src/user_api/00_prelude/40_public_klines.py`) now uses the documented
+default of **50** and caps the page size at **100**. The DynamoDB query and the
+public reference therefore enforce the same limit. Do not raise the public
+documented cap above 100 without a versioned contract change.
 
 ## Backtest & strategy engine expansion — deployed, authenticated verification pending
 

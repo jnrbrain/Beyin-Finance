@@ -172,9 +172,13 @@ Pay by card through the Beyin Finance Shopier store:
 
 #### Crypto — Binance Pay (manual)
 
-Send USDT to the Beyin Finance Binance Pay account:
+Send USDT to the Beyin Finance Binance account:
 
-- **Binance Pay ID:** `863 826 81`
+- **Binance Account ID:** `863 826 81`
+- This is the account identifier shown to customers for the manual transfer.
+  The separate internal Binance Pay receiver identifier is used only by the
+  payment reconciliation process and is not returned in the public startup
+  configuration.
 - **Important:** paste **only** your 6-character Beyin ID into the transfer
   **Note / Remark** field so the payment is matched to your account. If your
   Binance account is already linked to Beyin Finance, matching happens
@@ -396,6 +400,7 @@ credits.
     "transactions": [
       {"transaction_id": "credit#abc...", "type": "adjustment", "amount": 0.05, "action": "credit_adjustment", "description": "Credit adjustment", "timestamp": 1784936800},
       {"transaction_id": "credit#def...", "type": "spend", "amount": -0.01, "action": "economic_news", "description": "Economic news fetch", "timestamp": 1784936700},
+      {"transaction_id": "credit#telegram-reward", "type": "credit", "amount": 0.5, "action": "telegram_link_reward", "description": "Telegram bağlantı ödülü (+0.5 kredi)", "timestamp": 1784936900},
       {"transaction_id": "deposit#payment-1", "type": "deposit", "amount": 5.0, "action": "deposit", "description": "Payment abc12345", "timestamp": 1784900000}
     ],
     "count": 3,
@@ -405,7 +410,11 @@ credits.
 }
 ```
 
-**Transaction actions:** `deposit`, `backtest`, `credit_adjustment`, `strategy_generate`, `strategy_refund`, `marketplace_signal`
+**Transaction actions:** `deposit`, `backtest`, `credit_adjustment`, `strategy_generate`, `strategy_refund`, `marketplace_signal`, `telegram_link_reward`, `google_link_reward`, `binance_link_reward`
+
+Telegram registration and the first Telegram link to an existing account grant a
+one-time `0.5` credit reward. The reward is idempotent per Telegram account and
+appears as a positive `telegram_link_reward` transaction in this history.
 
 Automatic recovery details and adjustment reasons are not exposed through the
 customer API. Clients should display `credit_adjustment` as a generic balance
@@ -1126,6 +1135,17 @@ authenticated user already has a strategy with the same name, or if one
 `reason: "strategy_generation_in_progress"` (plus `Retry-After`) if you already
 have the maximum number of generations running. See the
 [Common `reason` codes](#common-reason-codes) table.
+
+Generation also applies a safety policy to the user-provided description,
+entry, take-profit, stop-loss and revision text. Text that attempts prompt
+injection, code execution, secret/system access, network/filesystem access, or
+is not a valid trading condition is rejected. The asynchronous generation
+attempt becomes `failed`, the full 1-credit charge is refunded once, and its
+generation service records HTTP `422` with the machine-readable shape
+`{"code":"strategy_input_rejected","reason_code":"unsafe_or_invalid_condition","retryable":false}`.
+No generated source is stored for a rejected attempt. Generated strategy source
+also has a zero-import policy; safe legacy imports remain readable only for
+backward compatibility and are not accepted in new or revised strategy code.
 
 ### Get Strategy Detail
 
