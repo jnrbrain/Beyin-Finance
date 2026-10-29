@@ -1086,15 +1086,22 @@ regenerating.
 `signal_only` strategies stop here — they emit an entry signal only, so no exit
 fields apply.
 
-#### Fixed exit (`signal_orders` only)
+#### Exit conditions (`signal_orders` only)
 
 The live API currently supports one order-strategy model: a single entry with
-fixed take-profit and stop-loss conditions.
+one take-profit condition and one stop-loss condition. Each condition may be a
+fixed percentage or a dynamic rule derived from the candle window supplied by
+the runtime. Live strategy evaluation may include the current forming candle
+so signals do not arrive one candle late; historical backtests exclude the
+evaluation candle to prevent look-ahead.
+The generator evaluates dynamic rules again for every signal, then returns the
+concrete TP-limit and SL-stop prices for that signal. The execution shape is a
+fire-and-forget OCO pair: when one exit fills, the sibling exit is cancelled.
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `tp_condition` | string | Yes | Fixed take-profit condition (max 2000 chars) |
-| `sl_condition` | string | Yes | Fixed stop-loss condition (max 2000 chars) |
+| `tp_condition` | string | Yes | Take-profit rule, fixed percentage or dynamic candle-window condition (max 2000 chars) |
+| `sl_condition` | string | Yes | Stop-loss rule, fixed percentage or dynamic candle-window condition (max 2000 chars) |
 
 :::{warning}
 Advanced exit and staged-entry fields — `exit_type`, `trail_pct`,
@@ -1116,7 +1123,7 @@ attempt costs nothing.
 
 **Example body:**
 ```json
-{"strategy_name": "emacross", "signal_mode": "signal_orders", "entry_condition": "EMA 9 crosses above EMA 21", "tp_condition": "Reaches a 3% profit target", "sl_condition": "Risk 2% below entry"}
+{"strategy_name": "emacross", "signal_mode": "signal_orders", "entry_condition": "EMA 9 crosses above EMA 21", "tp_condition": "For a long, target the largest (high - close) / close gap across the last 100 completed candles; mirror it for a short", "sl_condition": "For a long, stop below the lowest low of the last 20 completed candles; mirror it for a short"}
 ```
 
 **Response:**
@@ -1207,8 +1214,8 @@ Two modes, selected by `mode`:
 | `strategy_name` | string | Yes | Existing strategy you own |
 | `mode` | string | No | `"rewrite"` (re-enter conditions) or `"ai_revise"` (free-text change request). |
 | `entry_condition` | string | No | New entry condition |
-| `tp_condition` | string | Cond. | New fixed take-profit. Required with `sl_condition` for a `signal_orders` rewrite. |
-| `sl_condition` | string | Cond. | New fixed stop-loss. Required with `tp_condition` for a `signal_orders` rewrite. |
+| `tp_condition` | string | Cond. | New take-profit rule (fixed or dynamic). Required with `sl_condition` for a `signal_orders` rewrite. |
+| `sl_condition` | string | Cond. | New stop-loss rule (fixed or dynamic). Required with `tp_condition` for a `signal_orders` rewrite. |
 | `revision_prompt` | string | Cond. | Free-text change request, 20–2000 chars. Required for `mode: "ai_revise"`; rejected for `mode: "rewrite"`. |
 
 The required condition fields mirror [Create Strategy](#create-strategy): the
@@ -1219,9 +1226,9 @@ be present.
 Editing a strategy creates a new version and triggers AI code regeneration. All marketplace subscribers of this strategy will be automatically unsubscribed.
 :::
 
-**Example body (rewrite a fixed-exit strategy):**
+**Example body (rewrite an order strategy with exit rules):**
 ```json
-{"strategy_name": "emacross", "mode": "rewrite", "entry_condition": "EMA 12 crosses above EMA 26", "tp_condition": "Price reaches +5%", "sl_condition": "Price drops -3%"}
+{"strategy_name": "emacross", "mode": "rewrite", "entry_condition": "EMA 12 crosses above EMA 26", "tp_condition": "Price reaches +5%", "sl_condition": "Stop below the lowest low of the last 20 completed candles"}
 ```
 
 **Example body (AI revise):**

@@ -104,7 +104,11 @@ After that verification, add to `endpoints.md`:
 3. Strategy generation is only partially expanded in production:
    `direction_agnostic` (default true) is live, and market type, leverage, side
    and timeframe are selected later. The live order-strategy model remains a
-   single entry with fixed `tp_condition` + `sl_condition`.
+   single entry with condition-based `tp_condition` + `sl_condition`. Each
+   condition can be a fixed percentage or a dynamic candle-window rule; live
+   evaluation may include the forming candle, while historical backtests
+   exclude the evaluation candle;
+   the generator returns concrete per-signal OCO prices after evaluating it.
 
    Strategy create/edit delivery hardening is live in the same API surface:
    clients preserve `Idempotency-Key` across retries; a `generation_id` binds
