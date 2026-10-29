@@ -537,10 +537,26 @@ html[data-bf-theme="dark"] .rst-content code.literal {
 }
 
 .rst-content blockquote {
+  position: relative;
   margin-left: 0;
   padding: 8px 0 8px 16px;
-  border-left: 4px solid var(--bf-primary);
+  border-left: 0;
   color: var(--bf-text-secondary);
+}
+
+.rst-content blockquote::before {
+  content: "";
+  position: absolute;
+  top: 8px;
+  bottom: 8px;
+  left: 0;
+  width: 3px;
+  border-radius: 3px;
+  background: var(--bf-primary);
+}
+
+.rst-content blockquote > :last-child {
+  margin-bottom: 0;
 }
 
 .btn,

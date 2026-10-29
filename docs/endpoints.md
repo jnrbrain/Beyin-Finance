@@ -9,13 +9,12 @@ All endpoints in this reference are relative to this base URL (for example,
 
 ## Authentication
 
-Use developer API credentials for integrations. Official app/web clients may
-use the authenticated session token issued at login.
+Use the same developer API credential pair for every authenticated public API
+request.
 
-| Client | Authentication |
+| Request surface | Authentication |
 |--------|----------------|
-| Developer/integration client | `X-API-Key` + `X-API-Secret` |
-| Trading Data routes | `X-API-Key` + `X-API-Secret` or authenticated app session |
+| Authenticated API routes, including Trading Data | `X-API-Key` + `X-API-Secret` |
 
 **Developer API-key example:**
 
@@ -58,11 +57,8 @@ used with Beyin Finance must allow the proxy's static egress IP
 > `community_chat`, `community_leaders`, `marketplace_browse`,
 > `marketplace_listing`, and `marketplace_reviews`.
 
-A 401 caused by the session token itself carries `"code": "session_expired"` in
-the error body; a 401 caused by a rejected or revoked Developer API key carries
-`"code": "invalid_credentials"`. Not every 401 is a session problem — see the
-Errors section for the marker table and the rule for when a client should
-re-authenticate.
+A rejected or revoked Developer API key carries `"code":
+"invalid_credentials"`. See the Errors section for the complete marker table.
 
 If the Developer API key store cannot be reached, the request never reaches a
 credential decision: it returns HTTP 503 with
@@ -932,11 +928,9 @@ headers on every request. The observable behavior is:
    credentials were never checked, so this is not a reason to rotate them —
    retry with backoff.
 
-A rejected or revoked Developer API key never carries `session_expired`, so an
-authenticated app session remains valid. The same 503 applies on
-`/tradingdata` when `X-API-Key` / `X-API-Secret` are supplied: an unavailable
-key store is reported as an outage, never silently downgraded to a guest
-(unauthenticated) session.
+A rejected or revoked Developer API key never silently downgrades to guest
+access. The same 503 applies on `/tradingdata` when `X-API-Key` /
+`X-API-Secret` are supplied: an unavailable key store is reported as an outage.
 
 **Limits:** 1 Developer API key per user. Revoking your key frees the slot
 immediately so you can issue a replacement.
@@ -2777,7 +2771,7 @@ failure so clients can react without parsing the message text.
 | `code` | Meaning | Client action |
 |--------|---------|---------------|
 | `session_expired` | The session token itself was missing, invalid, or expired. | Clear the stored session and re-authenticate. |
-| `invalid_credentials` | The Developer API key/secret was rejected or has been revoked. | Issue new API credentials. An authenticated app session is unaffected. |
+| `invalid_credentials` | The Developer API key/secret was rejected or has been revoked. | Issue new API credentials. |
 | `api_key_store_unavailable` | The Developer API key store could not be reached, so no credential was evaluated. Always paired with HTTP 503. | Retry with backoff. Do not rotate credentials and do not clear the session. |
 | `jwt_required` | A first-party `/backtest` request declared `auth_type=jwt` but did not carry a JWT header. | Wait for session readiness or sign in again; do not fall back to empty legacy credentials. |
 | `invalid_token` | The JWT supplied to the backtest surface is malformed, expired, or otherwise invalid. | Refresh the session when possible; otherwise clear it and sign in again. |
