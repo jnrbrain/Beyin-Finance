@@ -236,7 +236,7 @@ without accounting:
 }
 ```
 
-**Common `reason` codes:**
+### Common `reason` codes
 - `rate_limit_exceeded` (HTTP 429): Your per-minute request limit was exceeded.
 - `temporarily_unavailable` (HTTP 503): The request cannot be processed right
   now (e.g. the rate-limit backend is briefly unavailable); retry after the
@@ -249,7 +249,8 @@ without accounting:
   results, and every other action are never limited by it. The body also
   includes `current_running` and `max_concurrent`.
 - `strategy_generation_in_progress` (HTTP 429): You already have the maximum
-  number of AI strategy generations running (`/user?action=strategy_generate`).
+  number of AI strategy generations running
+  (`/user?request_type=strategy_generate`).
   Wait for one to finish before starting another. The body also includes
   `in_progress` and `max_concurrent`.
 - `backtest_capacity_exceeded` (HTTP 429): The backtest engine hit a transient
@@ -1046,11 +1047,17 @@ immediately so you can issue a replacement.
 
 `POST /user?request_type=strategy_generate`
 
+Send an `Idempotency-Key` header (8–128 characters; letters, numbers, `.`,
+`_`, `:`, and `-`) and preserve it when retrying the same request. The mobile
+and web clients generate this header automatically. Reusing the same key with
+the same body returns the existing generation attempt without another charge;
+reusing it with different inputs returns `409 idempotency_conflict`.
+
 A strategy is **direction-agnostic** and **timeframe-agnostic**: it captures
-only the trading logic (entry, exit and — for order strategies — the entry
-engine). The market (spot/futures), side (long/short), leverage and timeframe
-are chosen later, at [backtest](#run-backtest) time, so one strategy can be
-evaluated any way without regenerating.
+only the trading logic. The market (spot/futures), side (long/short), leverage
+and timeframe are chosen later, at [backtest](#backtest) time, so one
+strategy can be evaluated in different run configurations without
+regenerating.
 
 #### Common fields (every strategy)
 
@@ -1061,87 +1068,54 @@ evaluated any way without regenerating.
 | `entry_condition` | string | Yes | Entry condition in natural language (max 5000 chars) |
 
 `signal_only` strategies stop here — they emit an entry signal only, so no exit
-or entry-engine fields apply. `signal_orders` strategies add an **exit type**
-and, optionally, an **entry type** as described below.
+fields apply.
 
-#### Exit type (`signal_orders` only)
+#### Fixed exit (`signal_orders` only)
 
-`exit_type` selects how the position is closed and therefore which condition
-fields are required. Default is `"fixed"`. Each type takes exactly the fields in
-its table — send only those.
-
-**`exit_type: "fixed"`** — fixed take-profit and stop-loss.
+The live API currently supports one order-strategy model: a single entry with
+fixed take-profit and stop-loss conditions.
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `tp_condition` | string | Yes | Take-profit condition (max 2000 chars) |
-| `sl_condition` | string | Yes | Stop-loss condition (max 2000 chars) |
+| `tp_condition` | string | Yes | Fixed take-profit condition (max 2000 chars) |
+| `sl_condition` | string | Yes | Fixed stop-loss condition (max 2000 chars) |
 
-**`exit_type: "scaling"`** — scale out of the position across targets between TP and SL.
-
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `tp_condition` | string | Yes | Final take-profit target (max 2000 chars) |
-| `sl_condition` | string | Yes | Stop-loss condition (max 2000 chars) |
-
-**`exit_type: "trailing"`** — stop trails price in the profit direction; no fixed TP.
-
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `trail_pct` | number | Yes | Trailing-stop distance as % of price, 0.1–50 |
-| `sl_condition` | string | Yes | Initial stop-loss condition (max 2000 chars) |
-
-**`exit_type: "time"`** — force-close after a fixed number of candles.
-
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `time_exit_candles` | int | Yes | Force-close after N candles, 1–5000 |
-| `sl_condition` | string | Yes | Stop-loss condition (max 2000 chars) |
-
-**`exit_type: "indicator"`** — exit rule re-evaluated each candle (replaces a fixed TP).
-
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `exit_condition` | string | Yes | Indicator-based exit rule in natural language (max 2000 chars) |
-| `sl_condition` | string | Yes | Stop-loss condition (max 2000 chars) |
-
-#### Entry type (`signal_orders` only)
-
-`entry_type` selects how the position is entered. Default is `"single"`.
-
-**`entry_type: "single"`** — the full position is opened in one order. No extra fields.
-
-**`entry_type: "dca"`** — staged/averaged entry (scale in with safety orders).
-
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `dca_steps` | int | Yes | Number of staged entries, 1–50 |
-| `dca_step_pct` | number | Yes | % price gap between staged entries, 0.1–50 |
+:::{warning}
+Advanced exit and staged-entry fields — `exit_type`, `trail_pct`,
+`time_exit_candles`, `exit_condition`, `entry_type`, `dca_steps` and
+`dca_step_pct` — are planned with lifecycle status `configuration_pending`.
+They are not part of the production request contract and must not be sent or
+relied upon until this reference explicitly marks them live.
+:::
 
 :::{note}
 Strategies are always created as private. Use `strategy_visibility` to make
 public after a successful full_range backtest.
 :::
 
-**Cost:** 1 credit, charged upfront. **Fully refunded** if generation fails, so
-a failed attempt costs nothing.
+**Cost:** 1 credit. The attempt record, profile state and debit are committed
+atomically before generation is queued. The full credit is refunded exactly
+once if generation, validation, benchmarking, or queueing fails, so a failed
+attempt costs nothing.
 
-**Example body (fixed exit, single entry):**
+**Example body:**
 ```json
-{"strategy_name": "emacross", "signal_mode": "signal_orders", "exit_type": "fixed", "entry_condition": "EMA 9 crosses above EMA 21", "tp_condition": "Reaches a 3% profit target", "sl_condition": "Risk 2% below entry"}
-```
-
-**Example body (trailing exit, DCA entry):**
-```json
-{"strategy_name": "trendride", "signal_mode": "signal_orders", "exit_type": "trailing", "trail_pct": 2.5, "entry_condition": "Price breaks above the 20-period high", "sl_condition": "Risk 3% below entry", "entry_type": "dca", "dca_steps": 3, "dca_step_pct": 1.5}
+{"strategy_name": "emacross", "signal_mode": "signal_orders", "entry_condition": "EMA 9 crosses above EMA 21", "tp_condition": "Reaches a 3% profit target", "sl_condition": "Risk 2% below entry"}
 ```
 
 **Response:**
 ```json
-{"ok": true, "data": {"strategy_name": "emacross", "version": 1, "signal_mode": "signal_orders", "status": "generating", "cost_upfront": 1.0, "cost_refunded_on_failure": 1.0}}
+{"ok": true, "data": {"strategy_name": "emacross", "version": 1, "signal_mode": "signal_orders", "status": "generating", "generation_id": "8d74f...", "idempotency_key": "9ed15...", "idempotent_replay": false, "cost_upfront": 1.0, "cost_refunded_on_failure": 1.0}}
 ```
 
-**Errors:** 400 if strategy_name is invalid; 400 if a condition required by the chosen `exit_type` is missing (e.g. `"tp_condition and sl_condition are required for this exit type"`, `"exit_condition is required for indicator exit"`); 400 if `exit_type`/`entry_type` value is invalid; 402 if insufficient credits; 409 if the authenticated user already has a strategy with the same name; 429 with `reason: "strategy_generation_in_progress"` (plus `Retry-After`) if you already have the maximum number of generations running. See the [Common `reason` codes](#common-reason-codes) table.
+**Errors:** 400 if `strategy_name` or `signal_mode` is invalid, if
+`entry_condition` is missing, or if a `signal_orders` request omits
+`tp_condition` or `sl_condition`; 402 if insufficient credits; 409 if the
+authenticated user already has a strategy with the same name, or if one
+`Idempotency-Key` is reused with different inputs (`idempotency_conflict`); 429 with
+`reason: "strategy_generation_in_progress"` (plus `Retry-After`) if you already
+have the maximum number of generations running. See the
+[Common `reason` codes](#common-reason-codes) table.
 
 ### Get Strategy Detail
 
@@ -1164,8 +1138,6 @@ credentials and private metadata are not exposed.
     "version": 3,
     "signal_mode": "signal_orders",
     "direction_agnostic": true,
-    "exit_type": "fixed",
-    "entry_type": "single",
     "entry_condition": "EMA 12 crosses above EMA 26",
     "tp_condition": "Price reaches +5%",
     "sl_condition": "Price drops -3%",
@@ -1179,9 +1151,6 @@ credentials and private metadata are not exposed.
 }
 ```
 
-The response also carries `exit_condition`, `trail_pct`, `time_exit_candles`,
-`dca_steps` and `dca_step_pct` when the strategy's `exit_type`/`entry_type` uses
-them, so a client can render the exact fields the strategy was built with.
 `timeframe` is present only if one was chosen; it is otherwise omitted because a
 strategy is timeframe-agnostic.
 
@@ -1193,14 +1162,15 @@ scoped to the authenticated owner, so a strategy you do not own is reported as
 
 `POST /user?request_type=strategy_edit`
 
+This credit-consuming endpoint uses the same `Idempotency-Key` replay and
+conflict rules as [Create Strategy](#create-strategy). Preserve the key across
+transport or session-refresh retries.
+
 Two modes, selected by `mode`:
 
 - **`rewrite`** — re-enter the strategy's conditions and regenerate the same
-  strategy. Send only the condition fields the strategy's `exit_type` uses
-  (the exit type itself is fixed at creation): `fixed`/`scaling` take
-  `tp_condition` + `sl_condition`, `indicator` takes `exit_condition` +
-  `sl_condition`, `trailing`/`time` take `sl_condition`. `exit_type` and
-  `entry_type` are preserved from the stored strategy.
+  strategy. An order strategy uses `entry_condition`, `tp_condition` and
+  `sl_condition`; a signal-only strategy uses only `entry_condition`.
 - **`ai_revise`** — send a free-text `revision_prompt` (min 20 chars) describing
   the change; the generator revises the existing code. Conditions are left
   unchanged unless you also send them.
@@ -1210,14 +1180,13 @@ Two modes, selected by `mode`:
 | `strategy_name` | string | Yes | Existing strategy you own |
 | `mode` | string | No | `"rewrite"` (re-enter conditions) or `"ai_revise"` (free-text change request). |
 | `entry_condition` | string | No | New entry condition |
-| `tp_condition` | string | Cond. | New take-profit. Required (with `sl_condition`) when the strategy's `exit_type` is `"fixed"` or `"scaling"`. |
-| `sl_condition` | string | Cond. | New stop-loss. Required for every order strategy exit type. |
-| `exit_condition` | string | Cond. | New indicator-exit rule. Required when the strategy's `exit_type` is `"indicator"`. |
+| `tp_condition` | string | Cond. | New fixed take-profit. Required with `sl_condition` for a `signal_orders` rewrite. |
+| `sl_condition` | string | Cond. | New fixed stop-loss. Required with `tp_condition` for a `signal_orders` rewrite. |
 | `revision_prompt` | string | Cond. | Free-text change request, 20–2000 chars. Required for `mode: "ai_revise"`; rejected for `mode: "rewrite"`. |
 
 The required condition fields mirror [Create Strategy](#create-strategy): the
-strategy's `exit_type` — not the signal mode alone — decides which of
-`tp_condition` / `sl_condition` / `exit_condition` must be present.
+strategy's `signal_mode` decides whether `tp_condition` and `sl_condition` must
+be present.
 
 :::{warning}
 Editing a strategy creates a new version and triggers AI code regeneration. All marketplace subscribers of this strategy will be automatically unsubscribed.
@@ -1235,7 +1204,7 @@ Editing a strategy creates a new version and triggers AI code regeneration. All 
 
 **Response:**
 ```json
-{"ok": true, "data": {"strategy_name": "emacross", "version": 3, "status": "generating", "copiers_cancelled": true}}
+{"ok": true, "data": {"strategy_name": "emacross", "version": 3, "status": "generating", "generation_id": "302bc...", "idempotency_key": "a198e...", "idempotent_replay": false, "copiers_cancelled": true}}
 ```
 
 ### Set Strategy Visibility
@@ -1350,6 +1319,14 @@ request cannot be completed safely, no user-visible strategy data is removed.
 ## Backtest
 
 **Endpoint:** `POST /backtest?action=<action>`
+
+The first-party mobile client sends `auth_type: jwt` with a `jwt_token` header
+and performs a local readiness/refresh check before estimate, launch, status,
+and result calls. Public developer clients remain backward compatible: callers
+that omit `auth_type` may use the legacy `beyin_id` + `beyin_password` flow or
+the documented API-key flow. A first-party request that declares JWT auth but
+omits the token receives `401 {"code": "jwt_required"}` rather than entering
+the legacy empty-credential branch.
 
 **Two backtest modes available:**
 - **Specified Range** (`action=run`): Test a strategy on a specific date range for a single instrument.
@@ -2732,6 +2709,9 @@ failure so clients can react without parsing the message text.
 | `session_expired` | The session token itself was missing, invalid, or expired. | Clear the stored session and re-authenticate. |
 | `invalid_credentials` | The Developer API key/secret was rejected or has been revoked. | Issue new API credentials. An authenticated app session is unaffected. |
 | `api_key_store_unavailable` | The Developer API key store could not be reached, so no credential was evaluated. Always paired with HTTP 503. | Retry with backoff. Do not rotate credentials and do not clear the session. |
+| `jwt_required` | A first-party `/backtest` request declared `auth_type=jwt` but did not carry a JWT header. | Wait for session readiness or sign in again; do not fall back to empty legacy credentials. |
+| `invalid_token` | The JWT supplied to the backtest surface is malformed, expired, or otherwise invalid. | Refresh the session when possible; otherwise clear it and sign in again. |
+| `session_revoked` | The JWT signature was valid but its server-side session is no longer active. | Clear the local session and sign in again. |
 
 `api_key_store_unavailable` is the answer for a missing dependency, not a
 rejected credential: it is never a 401 and never a bare 500. It applies to

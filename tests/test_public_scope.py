@@ -150,6 +150,34 @@ class PublicReferenceScopeTests(unittest.TestCase):
         self.assertIn("test1_ABC123", ENDPOINTS)
         self.assertIn("create their own local `test1` strategy", ENDPOINTS)
 
+    def test_advanced_strategy_fields_are_not_advertised_as_live(self):
+        strategy_reference = ENDPOINTS.split("## Strategy", 1)[1].split(
+            "## Backtest", 1
+        )[0]
+        create_section = strategy_reference.split("### Create Strategy", 1)[1].split(
+            "### Get Strategy Detail", 1
+        )[0]
+        advanced_fields = (
+            "exit_type",
+            "trail_pct",
+            "time_exit_candles",
+            "exit_condition",
+            "entry_type",
+            "dca_steps",
+            "dca_step_pct",
+        )
+        self.assertIn("`configuration_pending`", create_section)
+        for field in advanced_fields:
+            self.assertIn(f"`{field}`", create_section)
+            self.assertNotIn(f'"{field}"', strategy_reference)
+            self.assertNotIn(f"| `{field}` |", strategy_reference)
+
+        runtime_notes = (ROOT / "docs" / "runtime-integration-notes.md").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("**`configuration_pending`**", runtime_notes)
+        self.assertNotIn("DONE (documented in endpoints.md Create Strategy", runtime_notes)
+
     # Machine-readable `reason` / status tokens that clients switch on. These
     # are part of the public API contract (the app and third-party integrators
     # branch on the exact string), so the reference must spell them out even

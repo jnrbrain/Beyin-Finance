@@ -77,18 +77,17 @@ is the one integrators must follow, and the larger internal cap should be
 brought down on the code side in a later change. Do not raise the public
 documented cap to 1000.
 
-## Backtest & strategy engine expansion — pending deployment
+## Backtest & strategy engine expansion — deployed, authenticated verification pending
 
-Recorded 2026-09-21. The main repo added new backtest and strategy-generation
-capabilities in `AWS/BeyinFinanceBacktestOrchestrator.py`,
-`AWS/BeyinFinanceBacktestWorker.py`, and `AWS/BeyinFinanceStrategyGenerator.py`,
-and declared them in `contracts/strategy_backtest_v1.json`. As of this note the
-deployed Lambdas still predate the change (Orchestrator `LastModified`
-2026-09-19), so these are **NOT live** and are intentionally **absent from the
-public developer reference** (`endpoints.md`) per the not-yet-live rule.
+Recorded 2026-09-21, revalidated against the source contract on 2026-10-29, and
+the carrying strategy/backtest Lambda handlers were deployed on 2026-10-29.
+The deployment passed package, unit-test, lint and unauthenticated OPTIONS/401
+smoke checks, but an authenticated portfolio job was not run in that session
+because no valid JWT/test account was available. The capabilities below remain
+**out of the public live request tables and examples** until the authenticated
+portfolio → result → resimulation/paging → robustness chain is verified.
 
-Add to `endpoints.md` ONLY AFTER the carrying Lambda versions are deployed and
-verified:
+After that verification, add to `endpoints.md`:
 
 1. Backtest actions (read-only, post-process a completed `job_id`; not subject
    to `backtest_concurrency_limit`, no credit charge):
@@ -102,21 +101,32 @@ verified:
    `risk_pct` (when risk_pct). Also surfaced in the portfolio result.
    NOTE: the same change moves the portfolio `initial_balance` DEFAULT from 100
    to 1000 — update the documented default when it ships.
-3. DONE (documented in endpoints.md Create Strategy + Backtest): `strategy_generate`
-   fields `exit_type` (`fixed`|`trailing`|`time`|`indicator`|`scaling`, default
-   fixed), `trail_pct`, `time_exit_candles`, `exit_condition` (required for
-   indicator exit), `entry_type` (`single`|`dca`, default single),
-   `dca_steps`, `dca_step_pct`, and `direction_agnostic`
-   (default true). Required condition fields now depend on `exit_type`
-   (fixed/scaling → tp+sl; trailing/time → sl; indicator → exit_condition+sl).
-   Market type, leverage and side are NOT strategy-creation fields — a
-   strategy is direction-agnostic and these are chosen on the backtest launch
-   actions (`market_type`, `leverage`, `position_side`). Strategy creation and
-   edit only take the trading logic; they never accept a market or side.
+   The result also exposes the raw-entry source, deterministic allocation
+   policy, entered/skipped counts and financial invariant diagnostics.
+   Portfolio signals are paged from the full entered+skipped union store.
+3. Strategy generation is only partially expanded in production:
+   `direction_agnostic` (default true) is live, and market type, leverage, side
+   and timeframe are selected later. The live order-strategy model remains a
+   single entry with fixed `tp_condition` + `sl_condition`.
+
+   Strategy create/edit delivery hardening is live in the same API surface:
+   clients preserve `Idempotency-Key` across retries; a `generation_id` binds
+   the generation task to one atomically charged registry attempt; failure refund and
+   in-flight slot release are one transaction. The generation task
+   uses Claude Sonnet 4.6 first and falls back to GPT-6.1 Sol through Amazon
+   Bedrock only for Anthropic access/availability failures.
+
+   The advanced fields `exit_type` (`fixed`|`trailing`|`time`|`indicator`|
+   `scaling`), `trail_pct`, `time_exit_candles`, `exit_condition`, `entry_type`
+   (`single`|`dca`), `dca_steps` and `dca_step_pct` have lifecycle status
+   **`configuration_pending`**. The User API handler and the machine contract do
+   not currently accept them as production behavior. Move them into the live
+   developer reference only after handler/generator/client support, contract
+   tests, deployment and live verification all advance together.
 
 Sibling surfaces to update in the SAME release (tracked so nothing drifts):
 - Public website `Developers.tsx` backtest sample list (add walk_forward,
   monte_carlo; re-check the group `count`).
-- Website marketing/blog "three backtest modes" copy (now understated: trailing
-  / time / indicator / scaling exits, single / DCA entries, risk-% sizing,
-  walk-forward + Monte Carlo robustness).
+- Website marketing/blog copy must not advertise advanced exit or DCA behavior
+  as available while those fields are `configuration_pending`. Revisit the copy
+  only in the same release that makes the contract live.
