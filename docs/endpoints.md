@@ -36,8 +36,8 @@ unless the endpoint is explicitly part of login or registration.
 All client and developer calls use the single REST origin
 `https://api.beyinfinance.com/` and the documented `/user` routes. The
 application server sends Binance-signed private requests through the active
-Lightsail proxy at `https://binance-proxy.beyinfinance.com/signed`; that proxy
-endpoint is internal and is not a client-facing API route. Binance API keys
+Lightsail proxy; that proxy endpoint is internal and is not a client-facing API
+route. Binance API keys
 used with Beyin Finance must allow the proxy's static egress IP
 `3.120.214.198` when IP restriction is enabled.
 
