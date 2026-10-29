@@ -2348,11 +2348,51 @@ list and the version fields are `null`.
 
 ---
 
+## AI and Market Data
+
+All AI requests use the short `/ai` resource. Authentication is supplied by
+the normal session/JWT or API-key headers. The old `/user` and `/tradingdata`
+AI routes are retired and return `410 ai_endpoint_moved`.
+
+### AI Chat
+
+`POST /ai?request_type=ai_chat`
+
+```json
+{"message": "BTC için 1 saatlik görünüm nedir?"}
+```
+
+Returns `cevap` and optional structured `veri`. Chat history is available with
+`POST /ai?request_type=ai_chat_history&limit=50`.
+
+### Market Analysis
+
+`POST /ai?request_type=market_analysis`
+
+Returns direct market data without generating a chat response. Send `coin` and
+optional `vade` in the body.
+
+### Market Commentary
+
+`POST /ai?request_type=market_commentary`
+
+Send `coin` and the previously returned `veri` object to receive a concise
+Turkish dashboard commentary.
+
+### Market Ratings
+
+`POST /ai?request_type=market_ratings`
+
+Send `coin` and receive the multi-timeframe `market_ratings` list. This is a
+technical rating feed, not a trade execution endpoint.
+
+---
+
 ## Community
 
 ### Global Chat - Send Message
 
-`POST /user?request_type=community_chat_send`
+`POST /user?request_type=community_chat_message`
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
@@ -2360,7 +2400,7 @@ list and the version fields are `null`.
 
 **Response:**
 ```json
-{"ok": true, "data": {"msg_id": "1784990000_MTHG7A", "sort_key": "1784990000#1784990000_MTHG7A"}}
+{"ok": true, "data": {"msg_id": "1784990000_MTHG7A", "sort_key": "1784990000#1784990000_MTHG7A", "channel": "global"}}
 ```
 
 ### Global Chat - History

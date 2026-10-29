@@ -29,7 +29,7 @@ class PublicReferenceScopeTests(unittest.TestCase):
         "binance_order",
         "binance_order_preview",
         "community_chat_delete",
-        "community_chat_send",
+        "community_chat_message",
         "community_follow",
         "community_leader_apply",
         "community_leader_application_get",
