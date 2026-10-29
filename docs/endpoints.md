@@ -26,9 +26,9 @@ Content-Type: application/json
 
 Generate API keys from the Telegram bot, web dashboard, or mobile app.
 
-A missing or invalid credential returns HTTP 401. Every `/tradingdata`, `/user`,
-and `/backtest` operation in this reference requires a tracked caller identity
-unless the endpoint is explicitly part of login or registration.
+A missing or invalid credential returns HTTP 401 on authenticated routes.
+`/user` and `/backtest` operations require a tracked caller identity; selected
+`/tradingdata` and `/` routes are guest-accessible as marked below.
 
 ### Binance request routing
 
@@ -1075,33 +1075,28 @@ and timeframe are chosen later, at [backtest](#backtest) time, so one
 strategy can be evaluated in different run configurations without
 regenerating.
 
-#### Common fields (every strategy)
+#### Strategy fields
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `strategy_name` | string | Yes | Unique only within the authenticated user's account; lowercase alphanumeric, no spaces, min 4 chars, max 20 chars, at least 1 letter (`^[a-z0-9]+$`) |
 | `signal_mode` | string | Yes | `"signal_orders"` (entry + managed exit) or `"signal_only"` (entry signal only, no TP/SL) |
 | `entry_condition` | string | Yes | Entry condition in natural language (max 5000 chars) |
+| `tp_condition` | string | `signal_orders` only | Take-profit / exit condition: a percentage-based rule or dynamic candle-window rule (max 2000 chars) |
+| `sl_condition` | string | `signal_orders` only | Stop-loss / exit condition: a percentage-based rule or dynamic candle-window rule (max 2000 chars) |
 
-`signal_only` strategies stop here — they emit an entry signal only, so no exit
-fields apply.
-
-#### Exit conditions (`signal_orders` only)
+`signal_only` strategies use only the first three fields; the two exit
+condition fields are not used for that mode.
 
 The live API currently supports one order-strategy model: a single entry with
-one take-profit condition and one stop-loss condition. Each condition may be a
-fixed percentage or a dynamic rule derived from the candle window supplied by
-the runtime. Live strategy evaluation may include the current forming candle
+one take-profit condition and one stop-loss condition. Each condition can be a
+percentage-based rule or a dynamic rule derived from the candle window supplied
+by the runtime. Live strategy evaluation may include the current forming candle
 so signals do not arrive one candle late; historical backtests exclude the
 evaluation candle to prevent look-ahead.
 The generator evaluates dynamic rules again for every signal, then returns the
 concrete TP-limit and SL-stop prices for that signal. The execution shape is a
 fire-and-forget OCO pair: when one exit fills, the sibling exit is cancelled.
-
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `tp_condition` | string | Yes | Take-profit rule, fixed percentage or dynamic candle-window condition (max 2000 chars) |
-| `sl_condition` | string | Yes | Stop-loss rule, fixed percentage or dynamic candle-window condition (max 2000 chars) |
 
 :::{warning}
 Advanced exit and staged-entry fields — `exit_type`, `trail_pct`,
@@ -1214,8 +1209,8 @@ Two modes, selected by `mode`:
 | `strategy_name` | string | Yes | Existing strategy you own |
 | `mode` | string | No | `"rewrite"` (re-enter conditions) or `"ai_revise"` (free-text change request). |
 | `entry_condition` | string | No | New entry condition |
-| `tp_condition` | string | Cond. | New take-profit rule (fixed or dynamic). Required with `sl_condition` for a `signal_orders` rewrite. |
-| `sl_condition` | string | Cond. | New stop-loss rule (fixed or dynamic). Required with `tp_condition` for a `signal_orders` rewrite. |
+| `tp_condition` | string | Cond. | New take-profit / exit condition (percentage-based or dynamic). Required with `sl_condition` for a `signal_orders` rewrite. |
+| `sl_condition` | string | Cond. | New stop-loss / exit condition (percentage-based or dynamic). Required with `tp_condition` for a `signal_orders` rewrite. |
 | `revision_prompt` | string | Cond. | Free-text change request, 20–2000 chars. Required for `mode: "ai_revise"`; rejected for `mode: "rewrite"`. |
 
 The required condition fields mirror [Create Strategy](#create-strategy): the
@@ -1241,6 +1236,10 @@ Editing a strategy creates a new version and triggers AI code regeneration. All 
 {"ok": true, "data": {"strategy_name": "emacross", "version": 3, "status": "generating", "generation_id": "302bc...", "idempotency_key": "a198e...", "idempotent_replay": false, "copiers_cancelled": true}}
 ```
 
+Each accepted rewrite creates the next strategy version; previous versions are
+retained. Use [`strategy_versions`](#get-strategy-versions) to list them and
+[`strategy_rollback`](#rollback-strategy) to restore one when needed.
+
 ### Set Strategy Visibility
 
 `POST /user?request_type=strategy_visibility`
@@ -1249,7 +1248,7 @@ Editing a strategy creates a new version and triggers AI code regeneration. All 
 |-------|------|----------|-------------|
 | `strategy_name` | string | Yes | |
 | `visibility` | string | Yes | `"private"` or `"public"` |
-| `credits_per_signal` | number | Yes* | 0.01-10 (*required for public) — per-signal fee in credits, charged to a subscriber each time they receive a signal from this strategy |
+| `credits_per_signal` | number | Yes* | 0.1-10 (*required for public) — per-signal fee in credits, charged to a subscriber each time they receive a signal from this strategy |
 | `timeframe` | string | Yes* | (*required for public) e.g. `"4h"` |
 | `coins` | string[] | Yes* | (*required for public) coins to list |
 
@@ -1775,21 +1774,15 @@ is tracked for rate limiting, audit and entitlement checks.
 
 | Query parameter | Type | Required | Description |
 |-------|------|----------|-------------|
-| `market_type` | string | `"spot"` or `"futures"` |
-| `timeframe` | string | e.g. `"4h"` |
-| `coin` | string | Filter by one listed coin |
-| `limit` | number | Default 50, min 1, max 100 |
-| `cursor` | string | Opaque cursor returned by the previous page |
-
-> **Note:** The public contract page size is capped at **100**. The currently
-> deployed handler clamps `limit` internally at a higher value (1000); this is a
-> known code/doc divergence to be closed on the code side. Integrators must treat
-> **100** as the maximum supported page size. See `runtime-integration-notes.md`
-> for the recorded divergence.
+| `market_type` | string | No | `"spot"` or `"futures"` |
+| `timeframe` | string | No | e.g. `"4h"` |
+| `coin` | string | No | Filter by one listed coin |
+| `limit` | number | No | Default 50, min 1, max 100 |
+| `cursor` | string | No | Opaque cursor returned by the previous page |
 
 **Response:**
 ```json
-{"listings": [{"listing_id": "lst_abc123", "strategy_name": "emacross", "owner": "MT***A", "market_type": "spot", "timeframe": "4h", "signal_mode": "full", "listed_coins": ["BTC", "ETH"], "billing_period": "monthly", "monthly_price_credits": 20, "total_pnl_pct": 12.5, "win_rate_pct": 68.0, "subscriber_count": 5, "total_signals_delivered": 42}], "next_cursor": "base64...", "has_more": true}
+{"listings": [{"listing_id": "lst_abc123", "strategy_name": "emacross", "owner": "MT***A", "description": "EMA crossover strategy", "market_type": "spot", "asset_class": "crypto", "provider": "binance", "exchange": "binance", "data_source": "binance", "trading_enabled": true, "timeframe": "4h", "signal_mode": "full", "leverage": 1, "listed_coins": ["BTC", "ETH"], "billing_period": "monthly", "monthly_price_credits": 2, "signal_price_credits": 2, "status": "active", "total_pnl_pct": 12.5, "win_rate_pct": 68.0, "subscriber_count": 5, "total_signals_delivered": 42, "created_at": 1784000000, "is_owner": false, "subscription_status": "", "selected_coins": []}], "count": 1, "next_cursor": "base64...", "has_more": true}
 ```
 
 Send the returned cursor unchanged to fetch the next page. `has_more=false`
@@ -1801,12 +1794,19 @@ page sizes return HTTP 400 instead of silently restarting at page one.
 `GET /tradingdata?request_type=marketplace_listing&listing_id=lst_abc123`
 
 Guest-accessible (stricter IP-based rate limits when unauthenticated). The
-response masks unrelated owner data and returns caller-specific ownership and
-subscription state when the caller is authenticated.
+public response masks owner data and does not include caller-specific ownership
+or subscription state. Use the authenticated `/user` listing-detail endpoint
+below when those fields are needed.
 
 For the authenticated caller's ownership and subscription state, use:
 
 `POST /user?request_type=marketplace_listing_detail`
+
+This authenticated form adds `is_owner`, `subscription_status`, and
+`selected_coins` for the caller.
+
+The public `GET /tradingdata` response is the unwrapped listing object. The
+`ok`/`data` envelope shown below is the authenticated `/user` response.
 
 | Field | Type | Required |
 |-------|------|----------|
@@ -1822,12 +1822,18 @@ For the authenticated caller's ownership and subscription state, use:
     "owner": "MT***A",
     "description": "EMA crossover strategy",
     "market_type": "spot",
+    "asset_class": "crypto",
+    "provider": "binance",
+    "exchange": "binance",
+    "data_source": "binance",
+    "trading_enabled": true,
     "timeframe": "4h",
     "leverage": 1,
     "signal_mode": "full",
     "listed_coins": ["BTC", "ETH"],
     "billing_period": "monthly",
-    "monthly_price_credits": 20,
+    "monthly_price_credits": 2,
+    "signal_price_credits": 2,
     "total_pnl_pct": 12.5,
     "win_rate_pct": 68.0,
     "subscriber_count": 5,
@@ -1864,14 +1870,14 @@ deterministic subscription for the listing, `subscription_status` and
 
 **Response:**
 ```json
-{"ok": true, "data": {"subscription_id": "sub_5c9f...", "listing_id": "lst_abc123", "strategy_name": "emacross", "active_coins": ["BTC", "ETH"], "billing_period": "monthly", "monthly_price_credits": 20, "credits_charged": 20, "next_charge_at": 1786600000, "expires_at": 1786600000, "bindings_created": 2}}
+{"ok": true, "data": {"subscription_id": "sub_5c9f...", "listing_id": "lst_abc123", "strategy_name": "emacross", "active_coins": ["BTC", "ETH"], "billing_period": "monthly", "monthly_price_credits": 2, "signal_price_credits": 2, "credits_charged": 2, "next_charge_at": 1786600000, "expires_at": 1786600000, "bindings_created": 2}}
 ```
 
 The subscription ID is deterministic for the authenticated user and listing.
 The subscription is all-or-nothing; a failed request leaves no partial
 subscription.
 
-**Errors:** 400 invalid coins / coin limit / self-subscribe / listing not active, 402 insufficient credits (`"code": "insufficient_credits"` — your balance is below the listing's `monthly_price_credits`), 403 license expired or active-strategy plan limit, 404 listing not found, 409 duplicate subscription or binding conflict, 503 atomic commit unavailable.
+**Errors:** 400 invalid coins / coin limit / self-subscribe / listing not active, 402 insufficient credits (`"code": "insufficient_credits"` — your balance is below the listing's `monthly_price_credits`), 403 license expired or active-strategy plan limit, 404 listing not found, **410 listing no longer accepts new subscribers**, 409 duplicate subscription or binding conflict, 503 atomic commit unavailable.
 
 ### Unsubscribe
 
@@ -1883,8 +1889,12 @@ subscription.
 
 **Response:**
 ```json
-{"ok": true, "data": {"status": "cancelled", "subscription_id": "sub_xyz789", "bindings_removed": 2}}
+{"ok": true, "data": {"status": "active", "auto_renew": false, "subscription_id": "sub_xyz789", "expires_at": 1786600000, "bindings_removed": 0}}
 ```
+
+Unsubscribe turns off renewal but does not end the prepaid period immediately.
+The subscription remains active, and its bindings remain usable until
+`expires_at`; the scheduled billing process ends it when that period finishes.
 
 ### My Listings
 
@@ -1897,7 +1907,7 @@ subscription.
 
 **Response:**
 ```json
-{"ok": true, "data": {"listings": [{"listing_id": "lst_abc123", "strategy_name": "emacross", "status": "active", "signal_mode": "full", "market_type": "spot", "timeframe": "4h", "listed_coins": ["BTC"], "billing_period": "monthly", "monthly_price_credits": 20, "subscriber_count": 5, "total_signals_delivered": 42, "total_credits_earned": 100.0, "total_pnl_pct": 12.5, "win_rate_pct": 68.0, "created_at": 1784000000}], "last_evaluated_key": "base64...", "has_more": true}}
+{"ok": true, "data": {"listings": [{"listing_id": "lst_abc123", "strategy_name": "emacross", "status": "active", "signal_mode": "full", "market_type": "spot", "asset_class": "crypto", "provider": "binance", "exchange": "binance", "data_source": "binance", "trading_enabled": true, "timeframe": "4h", "listed_coins": ["BTC"], "billing_period": "monthly", "monthly_price_credits": 2, "signal_price_credits": 2, "subscriber_count": 5, "total_signals_delivered": 42, "total_credits_earned": 100.0, "total_pnl_pct": 12.5, "win_rate_pct": 68.0, "created_at": 1784000000}], "last_evaluated_key": "base64...", "has_more": true}}
 ```
 
 ### My Subscriptions
@@ -1911,7 +1921,7 @@ subscription.
 
 **Response:**
 ```json
-{"ok": true, "data": {"subscriptions": [{"subscription_id": "sub_xyz789", "listing_id": "lst_abc123", "creator_beyin_id": "ABC123", "selected_coins": ["BTC"], "status": "active", "billing_period": "monthly", "monthly_price_credits": 20, "signals_received": 12, "credits_spent": 20.0, "next_charge_at": 1786600000, "expires_at": 1786600000, "created_at": 1784000000}], "last_evaluated_key": "base64...", "has_more": true}}
+{"ok": true, "data": {"subscriptions": [{"subscription_id": "sub_xyz789", "listing_id": "lst_abc123", "creator_beyin_id": "ABC123", "selected_coins": ["BTC"], "status": "active", "end_reason": "", "auto_renew": true, "billing_period": "monthly", "monthly_price_credits": 2, "signal_price_credits": 2, "signals_received": 12, "credits_spent": 2.0, "next_charge_at": 1786600000, "expires_at": 1786600000, "ended_at": 0, "created_at": 1784000000, "divide": 1, "scope": "", "run_config": {}}], "last_evaluated_key": "base64...", "has_more": true}}
 ```
 
 For both account lists, return the cursor unchanged to fetch the next result
@@ -1925,12 +1935,12 @@ page. Malformed cursors and non-integer page sizes return HTTP 400.
 |-------|------|----------|-------------|
 | `strategy_key` | string | Yes | Lowercase letters and numbers only |
 | `description` | string | No | Max 500 chars, no HTML |
-| `monthly_price_credits` | number | Yes | 1 - 1000 — fixed MONTHLY subscription fee in credits (billing is always monthly, prepaid) |
+| `monthly_price_credits` | number | Yes | 0.1 - 10 — fixed MONTHLY subscription fee in credits (billing is always monthly, prepaid) |
 | `signal_mode` | string | No | `"full"` (default) or `"signal_only"` |
 | `requested_coins` | string[] | Yes | Non-empty list of coins to list |
 
 :::{warning}
-Requirements for `signal_mode=full`: Must have a successful `full_range` backtest. Only coins with positive PnL and at least 10 trades are listed; others are rejected (`negative_pnl`, `insufficient_trades`, or `no_data`). `signal_mode=signal_only` requires no backtest and lists every requested coin.
+Requirements for `signal_mode=full`: Must have a successful `full_range` backtest. Only coins with positive return, at least 10 trades, and a per-trade geometric gain strictly above 1.001 are listed; others are rejected (`negative_return`, `insufficient_trades`, `low_per_trade_gain`, or `no_backtest_data`). `signal_mode=signal_only` requires no backtest and lists every requested coin.
 :::
 
 Marketplace listing names are globally disambiguated by appending the creator's
@@ -1940,15 +1950,15 @@ create their own local `test1` strategy.
 
 **Example body:**
 ```json
-{"strategy_key": "emacross", "description": "EMA crossover for BTC", "monthly_price_credits": 20, "signal_mode": "full", "requested_coins": ["BTC", "ETH", "SOL"]}
+{"strategy_key": "emacross", "description": "EMA crossover for BTC", "monthly_price_credits": 2, "signal_mode": "full", "requested_coins": ["BTC", "ETH", "SOL"]}
 ```
 
 **Response:**
 ```json
-{"ok": true, "data": {"listing_id": "lst_abc123", "strategy_key": "emacross_ABC123", "strategy_name": "emacross_ABC123", "display_strategy_name": "emacross", "status": "active", "listed_coins": ["BTC", "ETH"], "rejected_coins": {"SOL": "negative_pnl", "DOGE": "insufficient_trades"}, "monthly_price_credits": 20, "billing_period": "monthly", "signal_mode": "full", "backtest_summary": {"BTC": {"pnl_pct": 12.5, "win_rate": 68.0, "trades": 42}}}}
+{"ok": true, "data": {"listing_id": "lst_abc123", "strategy_key": "emacross_ABC123", "strategy_name": "emacross_ABC123", "display_strategy_name": "emacross", "status": "active", "listed_coins": ["BTC", "ETH"], "rejected_coins": {"SOL": "negative_return", "DOGE": "insufficient_trades"}, "monthly_price_credits": 2, "billing_period": "monthly", "signal_mode": "full", "backtest_summary": {"BTC": {"pnl_pct": 12.5, "win_rate": 68.0, "trades": 42}}}}
 ```
 
-**Errors:** 400 invalid `strategy_key`, 400 invalid `signal_mode`, 400 `monthly_price_credits` out of range (1-1000), 400 empty `requested_coins`, 400 HTML in description, 400 no `full_range` backtest found (full mode), 400 no profitable coins, 404 strategy not found.
+**Errors:** 400 invalid `strategy_key`, 400 invalid `signal_mode`, 400 `monthly_price_credits` out of range (0.1-10), 400 empty `requested_coins`, 400 HTML in description, 400 no `full_range` backtest found (full mode), 400 no eligible coins (`"code": "no_eligible_coins"`), 404 strategy not found.
 
 ### Update Listing
 
@@ -1957,22 +1967,27 @@ create their own local `test1` strategy.
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `listing_id` | string | Yes | |
-| `monthly_price_credits` | number | No | 1 - 1000 — new monthly subscription fee |
+| `monthly_price_credits` | number | No | 0.1 - 10 — new monthly subscription fee |
 | `description` | string | No | Max 500 chars, no HTML |
 
 :::{danger}
-Changing the price cancels ALL active subscriptions and removes their bindings.
+Changing the price stops renewal for existing subscribers; their prepaid period
+and bindings remain active until expiry.
 :::
 
 **Example body:**
 ```json
-{"listing_id": "lst_abc123", "monthly_price_credits": 30, "description": "Updated description"}
+{"listing_id": "lst_abc123", "monthly_price_credits": 3, "description": "Updated description"}
 ```
 
 **Response:**
 ```json
-{"ok": true, "data": {"listing_id": "lst_abc123", "updated_fields": ["monthly_price_credits"], "subscriptions_cancelled": 3, "note": "Price changed 20 -> 30. All subscriptions cancelled."}}
+{"ok": true, "data": {"listing_id": "lst_abc123", "updated_fields": ["monthly_price_credits"], "subscriptions_renewal_stopped": 3, "note": "Price changed 2 -> 3. Existing subscribers keep their prepaid period; auto-renew is turned off."}}
 ```
+
+Changing the price stops auto-renewal for existing subscribers but does not
+remove their bindings or end their already-paid period. New subscribers use the
+new price.
 
 **Errors:** 400 nothing to update / invalid price / HTML in description, 400 listing not active, 403 not your listing, 404 listing not found.
 
@@ -1985,13 +2000,18 @@ Changing the price cancels ALL active subscriptions and removes their bindings.
 | `listing_id` | string | Yes |
 
 :::{warning}
-Cancels all subscriptions, removes bindings, sets status to "removed".
+Stops renewal for existing subscriptions, hides the listing from new buyers, and
+keeps the listing active until the last prepaid rider period ends.
 :::
 
 **Response:**
 ```json
-{"ok": true, "data": {"status": "removed", "subscriptions_cancelled": 5, "bindings_removed": 12}}
+{"ok": true, "data": {"status": "active", "accepting_subscribers": false, "riders_notified": 5}}
 ```
+
+Unpublishing hides the listing from browse and blocks new subscriptions. Existing
+subscribers keep access until their prepaid `expires_at`; renewal is disabled and
+the listing is finalized after the last rider's prepaid period ends.
 
 ### Submit Review
 
@@ -2224,6 +2244,14 @@ rate limits); when credentials are supplied the caller is tracked.
   "spread_percent": "0.0001488",
   "commission_rate": "0.001",
   "commission_percent": "0.1",
+  "taker_commission_rate": "0.001",
+  "maker_commission_rate": "0.001",
+  "taker_commission_percent": "0.1",
+  "maker_commission_percent": "0.1",
+  "bids": [["67200.10", "0.50"]],
+  "asks": [["67200.20", "0.40"]],
+  "depth_limit": 100,
+  "depth_source": "binance_depth",
   "timestamp": 1784900000000
 }
 ```
@@ -2294,9 +2322,23 @@ supported assets. Cache locally and ignore unknown fields.
   "GENERAL": "general",
   "banner_urls": ["https://..."],
   "supported_coins": ["BTC", "ETH", "SOL"],
-  "app_version": "2.0.0"
+  "active_payments": ["shopier", "binance"],
+  "payment_gateways": {
+    "shopier": {"enabled": true, "base_url": "https://www.shopier.com/beyinfinance"},
+    "binance": {"enabled": true, "binance_account_id": "86382681"}
+  },
+  "maintenance_mode": false,
+  "config": {"maintenance_mode": false},
+  "latest_app_version": "0.0.17",
+  "min_supported_app_version": "0.0.1",
+  "changelog_url": "https://beyinfinance.com/changelog/"
 }
 ```
+
+The example is representative; the response may include additional platform
+configuration fields. The public payment configuration exposes the Binance
+Account ID used for manual transfers, not the internal Binance Pay receiver
+identifier.
 
 ### Get Available Coins
 
@@ -2354,9 +2396,9 @@ list and the version fields are `null`.
 
 ## AI and Market Data
 
-All AI requests use the short `/ai` resource. Authentication is supplied by
-the normal session/JWT or API-key headers. The old `/user` and `/tradingdata`
-AI routes are retired and return `410 ai_endpoint_moved`.
+All AI requests use the short `/ai` resource. Integrator requests use the same
+`X-API-Key` + `X-API-Secret` credentials described above. The old `/user` and
+`/tradingdata` AI routes are retired and return `410 ai_endpoint_moved`.
 
 ### AI Chat
 
@@ -2366,8 +2408,19 @@ AI routes are retired and return `410 ai_endpoint_moved`.
 {"message": "BTC için 1 saatlik görünüm nedir?"}
 ```
 
-Returns `cevap` and optional structured `veri`. Chat history is available with
-`POST /ai?request_type=ai_chat_history&limit=50`.
+The `message` value is required and limited to 4,000 characters. A successful
+request deducts `0.03` credits and returns `cevap` plus optional structured
+`veri`. A Bedrock failure refunds that charge and returns HTTP 503. Insufficient
+credits return HTTP 402 with `{"hata":"Yetersiz kredi","gerekli":0.03}`.
+
+**Response:**
+```json
+{"cevap": "...", "veri": {"coin": "BTCUSDT", "market_ratings": []}}
+```
+
+Chat history is available with `POST /ai?request_type=ai_chat_history&limit=50`.
+The history response is `{"messages":[{"role":"user|assistant","content":"...","timestamp":1784900000}]}`;
+`limit` defaults to 50 and is capped at 100.
 
 ### Market Analysis
 
@@ -2381,14 +2434,15 @@ optional `vade` in the body.
 `POST /ai?request_type=market_commentary`
 
 Send `coin` and the previously returned `veri` object to receive a concise
-Turkish dashboard commentary.
+Turkish dashboard commentary. The response is `{"yorum":"..."}`.
 
 ### Market Ratings
 
 `POST /ai?request_type=market_ratings`
 
-Send `coin` and receive the multi-timeframe `market_ratings` list. This is a
-technical rating feed, not a trade execution endpoint.
+Send `coin` (optional; defaults to `BTCUSDT`) and receive the multi-timeframe
+`market_ratings` list. The response is `{"coin":"BTCUSDT","market_ratings":[]}`.
+This is a technical rating feed, not a trade execution endpoint.
 
 ---
 
@@ -2401,6 +2455,8 @@ technical rating feed, not a trade execution endpoint.
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `message` | string | Yes | Max 500 characters |
+| `channel` | string | No | `global` (default), `lang:tr`, `lang:en`, or an authorized leader channel |
+| `reply_to_id` | string | No | Message ID to quote/reply to |
 
 **Response:**
 ```json
@@ -2417,8 +2473,9 @@ query parameter for the next page.
 
 | Query parameter | Type | Required | Description |
 |-------|------|----------|-------------|
-| `limit` | number | No | Default 50, max 100 |
+| `limit` | number | No | Default 1000, max 1000 |
 | `cursor` | string | No | Cursor returned by the previous page |
+| `channel` | string | No | `global` (default), `lang:tr`, or `lang:en`; leader channels are not available on this public route |
 
 **Response:**
 ```json
@@ -2471,6 +2528,8 @@ Only users with `community_role: "leader"` can create posts.
 | `title` | string | No | Post title |
 | `content` | string | Yes | Max 5000 characters |
 | `image_url` | string | No | HTTPS URL for the attached image |
+| `category` | string | No | `analysis` (default), `market`, `strategy`, `signal`, `news`, or `education` |
+| `image_keys` | string[] | No | Up to 3 keys returned by `community_upload_url` |
 
 **Response:**
 ```json
@@ -2536,7 +2595,7 @@ Requires authentication.
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `author_id` | string | Yes | Beyin ID of the author |
+| `author_id` | string | No | Beyin ID of the author; omit to read the global community feed |
 | `limit` | integer | No | Default 20, max 50 |
 | `last_evaluated_key` | string | No | Opaque cursor returned by previous page |
 
@@ -2575,7 +2634,7 @@ for the next page; a malformed cursor returns HTTP 400.
 
 **Response:**
 ```json
-{"ok": true, "data": {"post_id": "...", "action": "commented"}}
+{"ok": true, "data": {"post_id": "...", "comment_id": "comment_MTHG7A_1784990000", "action": "commented"}}
 ```
 
 ### Report Content
@@ -2587,6 +2646,8 @@ for the next page; a malformed cursor returns HTTP 400.
 | `post_id` | string | Conditional | For reporting a post |
 | `type` | string | No | `"post"` (default) or `"chat"` |
 | `sort_key` | string | Conditional | For reporting a chat message |
+| `channel` | string | No | Chat channel when `type="chat"` (default `global`) |
+| `reason` | string | No | Short report reason (default `other`, max 120 characters) |
 
 **Response:**
 ```json
@@ -2647,8 +2708,8 @@ Return the opaque cursor unchanged; malformed cursors return HTTP 400.
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `display_name` | string | Yes | Leader Display Name (3-30 Latin alphanumeric chars or spaces, e.g. `"Finans Kulubu"`) |
-| `reason` | string | Yes | Reason for application (max 1000 chars) |
-| `experience` | string | Yes | Trading experience details (max 2000 chars) |
+| `reason` | string | Yes | Reason for application (must be non-empty) |
+| `experience` | string | Yes | Trading experience details (must be non-empty) |
 
 The system automatically generates a unique lowercase nickname by removing spaces from `display_name` (e.g. `"Finans Kulubu"` -> `"finanskulubu"`). Returns 409 Conflict if nickname is already taken by another user.
 
@@ -2667,6 +2728,7 @@ cannot re-apply (409).
     "status": "pending",
     "display_name": "Finans Kulubu",
     "nickname": "finanskulubu",
+    "applied_at": 1784990000,
     "updated": false,
     "message": "Application submitted. We will review and notify you."
   }
@@ -2729,6 +2791,7 @@ Only accessible by users with approved `"leader"` community role.
 | `display_name` | string | Yes | New Leader Display Name (3-30 Latin alphanumeric chars or spaces) |
 | `bio` | string | No | Updated bio / description |
 | `avatar_url` | string | No | Optional new avatar image URL |
+| `avatar_key` | string | No | Key returned by `community_upload_url` for a validated uploaded avatar (alias: `avatar_s3_key`) |
 
 **Response:**
 ```json
@@ -2738,7 +2801,8 @@ Only accessible by users with approved `"leader"` community role.
     "display_name": "Finans Kulubu Pro",
     "nickname": "finanskulubupro",
     "community_bio": "Crypto & Forex specialist",
-    "avatar_url": "https://..."
+    "avatar_url": "https://...",
+    "avatar_s3_key": "community/avatars/MTHG7A/..."
   }
 }
 ```
