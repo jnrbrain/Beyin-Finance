@@ -31,6 +31,16 @@ A missing or invalid credential returns HTTP 401. Every `/tradingdata`, `/user`,
 and `/backtest` operation in this reference requires a tracked caller identity
 unless the endpoint is explicitly part of login or registration.
 
+### Binance request routing
+
+All client and developer calls use the single REST origin
+`https://api.beyinfinance.com/` and the documented `/user` routes. The
+application server sends Binance-signed private requests through the active
+Lightsail proxy at `https://binance-proxy.beyinfinance.com/signed`; that proxy
+endpoint is internal and is not a client-facing API route. Binance API keys
+used with Beyin Finance must allow the proxy's static egress IP
+`3.120.214.198` when IP restriction is enabled.
+
 > **Scope — first-party authentication flows are not a public integrator surface.**
 > The first-party sign-in and account-linking flows — login, registration,
 > Google linking, and Telegram linking — are owned by the official Beyin Finance
