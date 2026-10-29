@@ -144,12 +144,15 @@ Retry-After: 15               # Seconds until reset
 
 ### Payment
 
-Plans are sold as **one-time purchases that extend your subscription** — there
-is no automatic recurring billing on the manual channels. Each successful
-payment adds a fixed period to your plan: a **monthly (1 month / "1 Ay")**
-purchase adds **30 days** and an **annual (1 year / "1 Yıl")** purchase adds
-**365 days**, stacked on top of any time you already have. To keep a plan
-active you make another purchase before it expires.
+Payment behavior depends on the channel:
+
+- **Shopier card purchases are one-time purchases.** They extend your plan for
+  the purchased period and do **not** renew automatically. When the period
+  ends, you must make another Shopier purchase to keep the plan active.
+- **iOS and Android plan purchases are store subscriptions.** They renew
+  automatically through the App Store or Google Play until you cancel them in
+  the relevant store. Store renewals extend the plan without a new Shopier
+  order.
 
 Every purchase must be tied to your account by your **6-character Beyin ID**
 (for example `MTHG7A`), which you can find in your profile / account info.
@@ -159,30 +162,29 @@ Every purchase must be tied to your account by your **6-character Beyin ID**
 Pay by card through the Beyin Finance Shopier store:
 
 - **Store:** <https://www.shopier.com/beyinfinance>
-- Open the store, pick the listing for the plan and period you want
-  (each plan has a separate monthly / annual listing), and complete checkout.
+- Open the store, pick the listing for the plan and period you want, and
+  complete checkout. Each plan and billing period has its own listing.
 - **Important:** during checkout, type your **6-character Beyin ID** into the
   order note field. This is how the payment is matched to your account. If you
   are unsure the note was saved, keep your order email so support can match it
   by e-mail as a fallback.
 
-#### Crypto — Binance Pay (manual)
+#### Crypto — Binance Pay (currently suspended)
 
-Send USDT to the Beyin Finance Binance account:
+> **Notice — crypto payments are suspended.** In line with applicable SPK
+> requirements and our current compliance policy, crypto payment purchases are
+> currently suspended. **Do not send payment through Binance Pay.** This is an
+> operational notice for Beyin Finance and is not legal advice. See the
+> [SPK crypto-asset service provider notice](https://spk.gov.tr/duyurular/basin-duyurulari/2025/kripto-varlik-hizmet-saglayicilarina-iliskin-iki-tebli%C4%9F-yayimlandi)
+> for the applicable regulatory framework.
+
+For historical reference only (not a payment instruction):
 
 - **Binance Account ID:** `863 826 81`
-- This is the account identifier shown to customers for the manual transfer.
-  The separate internal Binance Pay receiver identifier is used only by the
-  payment reconciliation process and is not returned in the public startup
-  configuration.
-- **Important:** paste **only** your 6-character Beyin ID into the transfer
-  **Note / Remark** field so the payment is matched to your account. If your
-  Binance account is already linked to Beyin Finance, matching happens
-  automatically from the payer identity.
 
-#### Mobile — in-app purchase
+#### Mobile — in-app subscriptions
 
-In the iOS and Android apps, plans are sold as store-managed subscriptions:
+In the iOS and Android apps, plan purchases are store-managed subscriptions:
 
 - **Android:** Google Play Billing. **iOS:** Apple In-App Purchase (StoreKit).
 - Products are the plan × period SKUs (`beyin_<plan>_monthly` /
@@ -192,9 +194,10 @@ In the iOS and Android apps, plans are sold as store-managed subscriptions:
   no note to fill in. Every purchase is **verified server-side** with the store
   before your plan is granted — the app does not unlock a plan on the device
   alone.
-- Unlike the manual channels above, store subscriptions **auto-renew** through
-  the App Store / Google Play until you cancel them in the store. Renewals and
-  refunds are applied to your Beyin Finance plan automatically.
+- Plan subscriptions **auto-renew** through the App Store / Google Play until
+  you cancel them in the store. Renewals and refunds are applied to your Beyin
+  Finance plan automatically. The education product is the exception: it is a
+  one-time purchase and is not a recurring subscription.
 
 ### Client Best Practices
 
