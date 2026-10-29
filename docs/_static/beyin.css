@@ -122,23 +122,25 @@ body,
 .wy-side-nav-search .wy-dropdown > a {
   display: flex;
   align-items: center;
-  /* Left, not centre: the mark and the wordmark are one unit that shares the
-     search field's left edge. Centring floated the pair by however wide the
-     wordmark happened to be — which is exactly the "shifted" look. */
-  justify-content: flex-start;
+  /* Centre the complete mark + wordmark unit. The search field below remains
+     full-width, so the two controls keep their own intentional alignment. */
+  justify-content: center;
   gap: 8px;
-  width: 100%;
+  width: max-content;
+  max-width: 100%;
+  margin: 0 auto;
   color: var(--bf-sidebar-text);
   font-size: 18px;
   font-weight: 800;
   line-height: 1.2;
   letter-spacing: 0;
+  white-space: nowrap;
 }
 
 .wy-side-nav-search > a::before {
-  width: 28px;
-  height: 28px;
-  flex: 0 0 28px;
+  width: 26px;
+  height: 26px;
+  flex: 0 0 26px;
   background: var(--bf-logo-image) center / contain no-repeat;
   content: "";
   transform: translateY(0);
