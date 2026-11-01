@@ -9,12 +9,26 @@ All endpoints in this reference are relative to this base URL (for example,
 
 ## Authentication
 
-Use the same developer API credential pair for every authenticated public API
-request.
+Use the Developer API credential pair on authenticated endpoint operations that
+support integrator authentication. Authentication is endpoint-specific; this
+pair is not a replacement for first-party sessions or provider webhook proofs.
 
 | Request surface | Authentication |
 |--------|----------------|
-| Authenticated API routes, including Trading Data | `X-API-Key` + `X-API-Secret` |
+| Supported authenticated REST operations on `/user`, `/tradingdata`, `/backtest`, and `/ai` | `X-API-Key` + `X-API-Secret` |
+| Guest-read routes explicitly marked below | No credential required |
+| JWT-only, payment-provider, webhook, Education-internal, and WebSocket flows | Their endpoint-specific credential; Developer API keys do not replace it |
+
+This does **not** mean one Developer API key works on every route in the API.
+Use it only on operations documented as accepting integrator authentication:
+the supported operations under `/user` and `/tradingdata`, plus `/backtest`
+and `/ai`. `/user` has request-type-specific exceptions; key creation/revocation
+and session administration require a first-party session (key status accepts
+the current key), and login,
+registration, deletion, payment callbacks, Education-internal operations, and
+the community WebSocket use their own authentication flow. A public guest route
+does not need an API key, but if you send a key pair and it is invalid the API
+returns 401 instead of silently treating the request as a guest.
 
 **Developer API-key example:**
 
@@ -29,6 +43,19 @@ Generate API keys from the Telegram bot, web dashboard, or mobile app.
 A missing or invalid credential returns HTTP 401 on authenticated routes.
 `/user` and `/backtest` operations require a tracked caller identity; selected
 `/tradingdata` and `/` routes are guest-accessible as marked below.
+Developer API-key `permissions` values are metadata today; route access is
+determined by the endpoint's authentication rules, not by that field.
+
+Developer API keys work only where the operation accepts integrator
+authentication. They do not authorize first-party login/registration, JWT-only
+administrative or session actions, payment receipts and provider callbacks, or
+the community WebSocket connection flow. `/user` request types retain their
+individual auth requirements; follow the endpoint-specific notes below.
+
+For a Developer API request to `/backtest`, send the two API-key headers without
+the first-party `jwt_token` or `auth_type: jwt` headers. The mobile app uses JWT
+for its backtest flow. A `session_revoked` response means that app session is no
+longer active; an invalid Developer API key uses `invalid_credentials`.
 
 ### Binance request routing
 
@@ -49,13 +76,17 @@ used with Beyin Finance must allow the proxy's static egress IP
 > credentials (`X-API-Key` + `X-API-Secret`), not by driving the first-party
 > login/registration flows.
 
-> **Note:** Some Trading Data endpoints allow unauthenticated (guest) access
-> with stricter IP-based rate limits. Guest-accessible endpoints include:
-> `trend_signals`, `trend_signal_detail`, `trend_indicator`,
-> `trend_indicator_history`, `market_ticker`, `get_klines`, `market_quote`,
-> `market_symbol_info`, `platform_notifications`, `community_posts`,
-> `community_chat`, `community_leaders`, `marketplace_browse`,
-> `marketplace_listing`, and `marketplace_reviews`.
+> **Note:** Some read-only Trading Data endpoints allow guest access. The API
+> origin accepts requests through Cloudflare and AWS WAF uses
+> `CF-Connecting-IP` for visitor-aware abuse protection. Sustained high-volume
+> traffic may receive a WAF challenge; this is not a per-endpoint throughput
+> guarantee. The guest routes are `trend_signals`,
+> `trend_signal_detail`, `trend_indicator`, `trend_indicator_history`,
+> `sentiment_breakout_signals`, `market_ticker`, `market_live`,
+> `market_candles`, `get_klines`, `market_quote`, `market_symbol_info`,
+> `platform_notifications`, `community_posts`, `community_chat`,
+> `community_leaders`, `marketplace_browse`, `marketplace_listing`,
+> `marketplace_reviews`, and `changelog`.
 
 A rejected or revoked Developer API key carries `"code":
 "invalid_credentials"`. See the Errors section for the complete marker table.
@@ -112,16 +143,19 @@ response would instead carry a server-generated value such as
 
 ## Rate Limits
 
-Rate limits can vary by account and endpoint. Use the response headers as the
-authoritative limit for the authenticated client.
+Application rate limits vary by route and account. `/user` returns the
+authenticated account's current limit after its identity has been resolved;
+other surfaces may use their own rules. If a response includes the headers
+below, use those values for that request. AWS WAF may separately challenge
+abusive high-volume traffic at the API edge.
 
 ### Rate Limit Headers
 
-Every response includes rate limit information:
+Responses from routes with an application rate counter include:
 
 ```
-X-RateLimit-Limit: 120        # Your per-minute limit
-X-RateLimit-Remaining: 87     # Requests remaining in current window
+X-RateLimit-Limit: 60         # Current route/account limit
+X-RateLimit-Remaining: 47     # Requests remaining in the current window
 X-RateLimit-Reset: 1784990340 # Unix timestamp when the window resets
 ```
 
@@ -177,6 +211,11 @@ Pay by card through the Beyin Finance Shopier store:
 > operational notice for Beyin Finance and is not legal advice. See the
 > [SPK crypto-asset service provider notice](https://spk.gov.tr/duyurular/basin-duyurulari/2025/kripto-varlik-hizmet-saglayicilarina-iliskin-iki-tebli%C4%9F-yayimlandi)
 > for the applicable regulatory framework.
+
+> Binance Pay support is retained as a configured fallback if other payment
+> providers are unavailable. It is shown only when payment configuration and
+> the current compliance policy allow it. While the suspension notice above is
+> active, do not send a payment.
 
 For historical reference only (not a payment instruction):
 
@@ -824,8 +863,8 @@ Adds or removes a cryptocurrency trading pair from the user's synced favorites l
 
 Manage your Developer API key. Each user may have **1 active** Developer API
 key at a time — to replace it, revoke the existing key and generate a new one.
-These endpoints require JWT authentication (API key auth is not allowed for key
-management operations).
+Generating and revoking a key require JWT authentication. Status can be read by
+the authenticated owner; a Developer API key may only retrieve its own status.
 
 ### Generate API Key
 
@@ -837,7 +876,7 @@ cannot be retrieved afterward.
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `label` | string | Yes | Human-readable label for the key (1-64 characters) |
-| `permissions` | string[] | No | Permission scopes. Default: `["read", "trade"]` |
+| `permissions` | string[] | No | Stored metadata only; it does not restrict endpoint access. Default: `["read", "trade"]`. Do not use this field as an access-control boundary. |
 
 **Response:**
 ```json
@@ -868,7 +907,8 @@ afterward.
 
 Returns the status of your single active Developer API key. Because each user
 may hold only one key, this reports whether a key exists and its metadata rather
-than a list. The secret is never returned by this operation.
+than a list. A first-party session or the current key may authenticate this
+request. The secret is never returned by this operation.
 
 **Response:**
 ```json
@@ -1462,7 +1502,7 @@ strategy's stored values (spot + long by default). `market` here remains the
 | `commission` | number | No | 0.2 | Commission % |
 | `position_pct` | number | No | 100 | Position size % |
 | `min_gap_candles` | number | No | 4 | Min candles between signals |
-| `max_wait_days` | number | No | 30 | Max days to wait for fill |
+| `max_hold_days` | integer | No | 30 | Maximum holding time. After this timeout the position exits at the next candle open (1–365 days). `max_wait_days` is accepted only as a legacy request alias. |
 | `min_profit_pct` | number | No | 0.1 | Min profit target % |
 | `max_profit_pct` | number | No | 30 | Max profit target % |
 | `min_loss_pct` | number | No | 0.1 | Min stop loss % |
@@ -1474,6 +1514,30 @@ strategy's stored values (spot + long by default). `market` here remains the
 - **signal_filter_mode = "clamp"** (default): If strategy TP exceeds `max_profit_pct`, it's clamped to max. If SL exceeds `max_loss_pct`, clamped to max. Signals below `min_profit_pct` are always skipped.
 - **signal_filter_mode = "reject"**: Signals that exceed any min/max limit are completely skipped.
 - **min/max profit/loss** values are passed to the strategy function as ratio parameters (`min_profit_ratio`, `max_profit_ratio`, `max_loss_ratio`, `min_loss_ratio`) for TP/SL price calculation.
+
+### Exit scenarios in the completed result
+
+The engine emits one normal result plus a compact `summary.exit_scenarios`
+bundle. It does not create a separate result matrix. The same entry/exit stream
+is evaluated with three TP references:
+
+- `body`: long `max(open, close) >= TP`; short `min(open, close) <= TP`.
+- `midpoint`: long `(max(open, close) + high) / 2 >= TP`; short
+  `(min(open, close) + low) / 2 <= TP`.
+- `wick`: long `high >= TP`; short `low <= TP`.
+
+SL and liquidation always use the wick. If a candle touches both TP and SL,
+the result has `same_candle_conflict=true`; the UI can display either
+`pessimistic` (SL first) or `optimistic` (TP first). There is no third
+`ambiguous` result. The selected line is drawn opaque and thick; the other TP
+references are translucent dashed overlays. Marketplace publication requires
+`body` TP + `wick` SL, while midpoint/wick remain analysis views.
+
+Each strategy signal may calculate a different TP/SL price; fixed percentages
+are only one valid condition. The generator emits a single fire-and-forget OCO
+pair (entry + concrete TP + concrete SL) and does not create trailing TP/SL,
+ATR trailing, DCA, grid, or scaling exits. `max_hold_days` is the only engine
+timeout and defaults to 30 days.
 
 **Response:**
 ```json
@@ -1768,9 +1832,9 @@ must continue while `has_more` is true even if a filtered page is empty.
 
 `GET /tradingdata?request_type=marketplace_browse&limit=50`
 
-Guest-accessible: this endpoint may be called without authentication, subject to
-stricter IP-based rate limits. When credentials are supplied the caller identity
-is tracked for rate limiting, audit and entitlement checks.
+Guest-accessible: this endpoint may be called without authentication and is
+subject to API-edge abuse protection. When credentials are supplied the caller
+identity is tracked for audit and entitlement checks.
 
 | Query parameter | Type | Required | Description |
 |-------|------|----------|-------------|
@@ -1793,8 +1857,8 @@ page sizes return HTTP 400 instead of silently restarting at page one.
 
 `GET /tradingdata?request_type=marketplace_listing&listing_id=lst_abc123`
 
-Guest-accessible (stricter IP-based rate limits when unauthenticated). The
-public response masks owner data and does not include caller-specific ownership
+Guest-accessible and subject to API-edge abuse protection. The public response
+masks owner data and does not include caller-specific ownership
 or subscription state. Use the authenticated `/user` listing-detail endpoint
 below when those fields are needed.
 
@@ -1940,7 +2004,7 @@ page. Malformed cursors and non-integer page sizes return HTTP 400.
 | `requested_coins` | string[] | Yes | Non-empty list of coins to list |
 
 :::{warning}
-Requirements for `signal_mode=full`: Must have a successful `full_range` backtest. Only coins with positive return, at least 10 trades, and a per-trade geometric gain strictly above 1.001 are listed; others are rejected (`negative_return`, `insufficient_trades`, `low_per_trade_gain`, or `no_backtest_data`). `signal_mode=signal_only` requires no backtest and lists every requested coin.
+Requirements for `signal_mode=full`: Must have a successful `full_range` backtest using the auditable `body` TP + `wick` SL model. Only coins with positive return, at least 10 trades, and a per-trade geometric gain strictly above 1.001 are listed; others are rejected (`negative_return`, `insufficient_trades`, `low_per_trade_gain`, or `no_backtest_data`). A new result with an incompatible exit model is rejected as `exit_model_not_marketplace_compatible`. `signal_mode=signal_only` requires no backtest and lists every requested coin.
 :::
 
 Marketplace listing names are globally disambiguated by appending the creator's
@@ -2043,8 +2107,8 @@ Must have (or had) a subscription to review. One review per user per listing. Ca
 
 `GET /tradingdata?request_type=marketplace_reviews&listing_id=lst_abc123&limit=20`
 
-Guest-accessible: callable without authentication, subject to stricter IP-based
-rate limits. When credentials are supplied the caller identity is tracked for
+Guest-accessible: callable without authentication, subject to API-edge abuse
+protection. When credentials are supplied the caller identity is tracked for
 rate limiting, audit and entitlement checks.
 
 | Query parameter | Type | Required |
@@ -2067,8 +2131,8 @@ next page. Malformed cursors and non-integer limits return HTTP 400.
 ## Trading Data
 
 Most Trading Data requests accept an authenticated caller, but a subset is
-**guest-accessible** (callable without credentials, under stricter IP-based
-rate limits) — see the guest list in the [Authentication](#authentication)
+**guest-accessible** (callable without credentials, subject to API-edge abuse
+protection) — see the guest list in the [Authentication](#authentication)
 section. Endpoints not on that list require a tracked caller identity and
 return HTTP 401 without one. Some responses may still be license-gated by plan
 after the caller is identified (for example, `trend_signals` pages beyond the
@@ -2224,8 +2288,8 @@ stale-data warning when `_cache` is present.
 
 Returns a lightweight live quote for chart order preparation. This endpoint
 does not submit orders and does not require user Binance credentials. It is
-guest-accessible (callable without authentication, under stricter IP-based
-rate limits); when credentials are supplied the caller is tracked.
+guest-accessible (callable without authentication, subject to API-edge abuse
+protection); when credentials are supplied the caller is tracked.
 
 | Param | Type | Required | Description |
 |-------|------|----------|-------------|
@@ -2357,8 +2421,8 @@ Cache this response; the available set changes infrequently.
 
 `GET /tradingdata?request_type=platform_notifications&limit=20`
 
-Guest-accessible (stricter IP-based rate limits when unauthenticated). Returns
-system announcements such as new features and maintenance messages.
+Guest-accessible and subject to API-edge abuse protection. Returns system
+announcements such as new features and maintenance messages.
 
 | Param | Type | Required | Description |
 |-------|------|----------|-------------|
@@ -2373,8 +2437,8 @@ system announcements such as new features and maintenance messages.
 
 `GET /tradingdata?request_type=changelog&limit=50`
 
-Guest-accessible (stricter IP-based rate limits when unauthenticated). Returns
-the platform release history: the current and minimum-supported app versions
+Guest-accessible and subject to API-edge abuse protection. Returns the platform
+release history: the current and minimum-supported app versions
 plus dated release entries. Use it to render a "What's New" screen or to decide
 whether to prompt for an app update.
 
@@ -2467,8 +2531,8 @@ This is a technical rating feed, not a trade execution endpoint.
 
 `GET /tradingdata?request_type=community_chat&limit=50`
 
-Guest-accessible for reading visible community messages (stricter IP-based rate
-limits when unauthenticated). Use the returned `next_cursor` as the `cursor`
+Guest-accessible for reading visible community messages, subject to API-edge
+abuse protection. Use the returned `next_cursor` as the `cursor`
 query parameter for the next page.
 
 | Query parameter | Type | Required | Description |
@@ -2542,8 +2606,8 @@ Followers are automatically notified through their configured channels.
 
 `GET /tradingdata?request_type=community_posts&limit=20`
 
-Guest-accessible for reading visible leader posts (stricter IP-based rate
-limits when unauthenticated). Pagination uses the opaque `next_cursor` response
+Guest-accessible for reading visible leader posts, subject to API-edge abuse
+protection. Pagination uses the opaque `next_cursor` response
 value as the next request's `cursor`.
 The feed is returned newest-first by `created_at`. Clients must request bounded
 pages instead of loading the entire community feed at once.
@@ -2684,7 +2748,7 @@ for the next page; a malformed cursor returns HTTP 400.
 
 `GET /tradingdata?request_type=community_leaders&limit=25`
 
-Guest-accessible (stricter IP-based rate limits when unauthenticated).
+Guest-accessible and subject to API-edge abuse protection.
 `is_following` is evaluated for the authenticated caller (and is `false` for
 guests); follow and unfollow actions use the `/user` endpoints and require
 authentication.
@@ -2855,8 +2919,10 @@ failure so clients can react without parsing the message text.
 rejected credential: it is never a 401 and never a bare 500. It applies to
 `api_key_generate`, `api_key_revoke`, `X-API-Key` /
 `X-API-Secret` authentication on `/user`, and the same header pair on
-`/tradingdata`. The response body stays generic — no table, resource, or
-internal error detail is exposed.
+`/tradingdata`, `/backtest`, and `/ai`. Invalid or incomplete Developer API
+credentials use HTTP 401 with `invalid_credentials`; the response body for a
+store outage stays generic — no table, resource, or internal error detail is
+exposed.
 
 `session_expired` is returned for a missing, malformed, or expired session
 token, for a missing caller identity, and for every operation that rejects an
