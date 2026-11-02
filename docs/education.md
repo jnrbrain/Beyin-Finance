@@ -425,8 +425,8 @@ authenticated session is rejected with `403`. All state changes require an
    [edit its metadata](#update-a-product); [replace the draft
    curriculum](#replace-draft-curriculum).
 3. **Upload media** — [Create an upload](#create-an-upload), fetch
-   [part URLs](#get-presigned-part-urls), upload parts to S3, report
-   [part receipts](#report-part-completions), then
+   [part URLs](#get-presigned-part-urls), upload each part to its presigned
+   URL, report [part receipts](#report-part-completions), then
    [complete](#complete-an-upload) it. [Reconcile](#reconcile-upload-parts),
    [retry](#retry-upload-processing), or [abort](#abort-an-upload) as needed.
 4. **Publish** — [Submit for review](#submit-a-product-for-review); later
@@ -533,7 +533,7 @@ Idempotent cancellation. Requires `Idempotency-Key`.
 ### Reconcile Upload Parts
 
 `POST /education/v1/studio/uploads/{upload_id}/reconcile`
-Reconcile against S3 `ListParts` after a client/process loss. Requires
+Reconcile uploaded parts after a client or process interruption. Requires
 `Idempotency-Key`.
 
 **Errors:** 401, 403, 404, 409, 429.

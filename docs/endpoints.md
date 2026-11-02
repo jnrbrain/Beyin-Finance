@@ -61,11 +61,9 @@ longer active; an invalid Developer API key uses `invalid_credentials`.
 
 All client and developer calls use the single REST origin
 `https://api.beyinfinance.com/` and the documented `/user` routes. The
-application server sends Binance-signed private requests through the active
-Lightsail proxy; that proxy endpoint is internal and is not a client-facing API
-route. Binance API keys
-used with Beyin Finance must allow the proxy's static egress IP
-`3.120.214.198` when IP restriction is enabled.
+application server sends Binance-signed private requests from Beyin Finance's
+Binance egress address. When IP restriction is enabled, Binance API keys used
+with Beyin Finance must allow `3.120.214.198`.
 
 > **Scope — first-party authentication flows are not a public integrator surface.**
 > The first-party sign-in and account-linking flows — login, registration,
@@ -76,11 +74,9 @@ used with Beyin Finance must allow the proxy's static egress IP
 > credentials (`X-API-Key` + `X-API-Secret`), not by driving the first-party
 > login/registration flows.
 
-> **Note:** Some read-only Trading Data endpoints allow guest access. The API
-> origin accepts requests through Cloudflare and AWS WAF uses
-> `CF-Connecting-IP` for visitor-aware abuse protection. Sustained high-volume
-> traffic may receive a WAF challenge; this is not a per-endpoint throughput
-> guarantee. The guest routes are `trend_signals`,
+> **Note:** Some read-only Trading Data endpoints allow guest access. Requests
+> remain subject to service-level protections, and guest access does not
+> guarantee availability or throughput. The guest routes are `trend_signals`,
 > `trend_signal_detail`, `trend_indicator`, `trend_indicator_history`,
 > `sentiment_breakout_signals`, `market_ticker`, `market_live`,
 > `market_candles`, `get_klines`, `market_quote`, `market_symbol_info`,
@@ -91,8 +87,8 @@ used with Beyin Finance must allow the proxy's static egress IP
 A rejected or revoked Developer API key carries `"code":
 "invalid_credentials"`. See the Errors section for the complete marker table.
 
-If the Developer API key store cannot be reached, the request never reaches a
-credential decision: it returns HTTP 503 with
+If credentials cannot be evaluated because a required service is temporarily
+unavailable, the request returns HTTP 503 with
 `"code": "api_key_store_unavailable"`. That is an outage to retry, not a
 credential to replace.
 
@@ -146,8 +142,8 @@ response would instead carry a server-generated value such as
 Application rate limits vary by route and account. `/user` returns the
 authenticated account's current limit after its identity has been resolved;
 other surfaces may use their own rules. If a response includes the headers
-below, use those values for that request. AWS WAF may separately challenge
-abusive high-volume traffic at the API edge.
+below, use those values for that request. Limits may change; response headers
+are authoritative for the current request.
 
 ### Rate Limit Headers
 
@@ -166,15 +162,13 @@ Retry-After: 15               # Seconds until reset
 
 ### Plan Limits
 
-| Plan | Monthly | Annual (-50%) | Rate Limit (req/min) | Max Active Strategies | Max Coins/Strategy |
-|------|---------|---------------|---------------------|----------------------|-------------------|
-| Free | – | – | 30 | 0 | 0 |
-| Starter | $10 | $60 | 30 | 1 | 5 |
-| Plus | $20 | $120 | 60 | 2 | 10 |
-| Pro | $50 | $300 | 120 | 5 | 25 |
-| Investor | $100 | $600 | 240 | 10 | 50 |
-
-> First-party (app/web) requests receive 2× the listed rate limit.
+| Plan | Monthly | Annual (-50%) | Max Active Strategies | Max Coins/Strategy |
+|------|---------|---------------|----------------------|-------------------|
+| Free | – | – | 0 | 0 |
+| Starter | $10 | $60 | 1 | 5 |
+| Plus | $20 | $120 | 2 | 10 |
+| Pro | $50 | $300 | 5 | 25 |
+| Investor | $100 | $600 | 10 | 50 |
 
 ### Payment
 
@@ -256,9 +250,12 @@ In the iOS and Android apps, plan purchases are store-managed subscriptions:
   "status": "running",
   "progress_pct": 45,
   "coin_progress": {
-    "BTC": {"status": "completed", "progress_pct": 100},
-    "ETH": {"status": "running", "progress_pct": 45}
-  }
+    "BTC": {"status": "running", "progress_pct": 45},
+    "ETH": {"status": "queued", "progress_pct": 0}
+  },
+  "active_coins": ["BTC"],
+  "queued_coins": ["ETH"],
+  "max_active_coins_per_user": 2
 }
 ```
 
@@ -276,13 +273,13 @@ When a request exceeds the current limit, the API returns HTTP 429 with a
 
 **Service Temporarily Unavailable (HTTP 503):**
 
-When the rate-limit backend is momentarily unreachable, credit-consuming
-operations are rejected with a short cool-off rather than being processed
-without accounting:
+When a required service is temporarily unavailable, a request may return HTTP
+503. Use the response's retry delay and the normal idempotency guidance for
+state-changing requests:
 
 ```json
 {
-  "error": "Rate limit store is unavailable; please retry shortly",
+  "error": "Service temporarily unavailable; please retry shortly",
   "reason": "temporarily_unavailable",
   "retry_after": 5
 }
@@ -291,23 +288,18 @@ without accounting:
 ### Common `reason` codes
 - `rate_limit_exceeded` (HTTP 429): Your per-minute request limit was exceeded.
 - `temporarily_unavailable` (HTTP 503): The request cannot be processed right
-  now (e.g. the rate-limit backend is briefly unavailable); retry after the
-  indicated delay.
-- `backtest_concurrency_limit` (HTTP 429): You already have the maximum number
-  of backtest jobs running at once. The cap adapts to current platform load, so
-  it can be lower when the system is busy. Wait for a running job to finish
-  (poll `action=status`) before launching another. Only backtest launches
-  (`action=run` / `full_range` / `portfolio`) can return this — status polling,
-  results, and every other action are never limited by it. The body also
-  includes `current_running` and `max_concurrent`.
+  now; retry after the indicated delay.
+- `backtest_concurrency_limit` (HTTP 429): A backtest launch cannot be accepted
+  while the account is at its current launch limit. Follow `Retry-After` before
+  trying again. The response may include account-level `current_running` and
+  `max_concurrent` counts.
 - `strategy_generation_in_progress` (HTTP 429): You already have the maximum
   number of AI strategy generations running
   (`/user?request_type=strategy_generate`).
-  Wait for one to finish before starting another. The body also includes
-  `in_progress` and `max_concurrent`.
-- `backtest_capacity_exceeded` (HTTP 429): The backtest engine hit a transient
-  dispatch capacity limit. This is rare and short-lived; retry after the
-  indicated delay.
+  Wait for the current generation to finish and follow `Retry-After` before
+  trying again. The response includes `max_concurrent`.
+- `backtest_capacity_exceeded` (HTTP 429): The request cannot be accepted right
+  now. Retry after the indicated delay.
 
 **Recommended Handling:**
 Inspect the `Retry-After` header (or the `retry_after` JSON field, in seconds)
@@ -386,9 +378,8 @@ identifier, amount and status fields.
 
 `POST /user?request_type=login_history`
 
-Returns the most recent known login for each retained IP origin, newest first.
-The authentication record keeps a bounded set of origins; repeated logins from
-the same IP update that origin rather than creating duplicate events.
+Returns recent login activity for the authenticated account, newest first. Use
+this endpoint to review account access activity.
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
@@ -490,10 +481,12 @@ Requires Binance API keys linked. No body params.
 | `page_size` | integer | No | Default 25, min 1, max 100 |
 | `last_evaluated_key` | string | No | Opaque cursor returned by the previous page |
 
-Records are ordered newest first. `order_history_id` is the stable
-duplicate-removal key. Return the opaque cursor unchanged; malformed cursors,
-invalid statuses and non-integer page sizes return HTTP 400. Undocumented fields and
-stored exchange/credential payloads are removed from the response.
+Records are ordered newest first. This is Beyin Finance's tracked order history,
+not a complete copy of every order in the Binance account. `order_history_id` is
+the stable account-scoped identifier used by `binance_order_cancel`. Return the
+opaque cursor unchanged; malformed cursors, invalid statuses and non-integer
+page sizes return HTTP 400. Undocumented fields and stored exchange/credential
+payloads are removed from the response.
 
 **Response:**
 ```json
@@ -503,13 +496,19 @@ stored exchange/credential payloads are removed from the response.
     "orders": [
       {
         "order_id": "ord_1784936800",
+        "record_type": "oco_order",
+        "order_history_id": "order#12345678",
         "timestamp": 1784936800,
         "strategy_name": "emacross",
         "coin": "BTC",
+        "symbol": "BTCUSDT",
         "exchange_order_status": "NEW",
         "execution_mode": "real_trade",
         "order_source": "signal",
-        "signal_position_key": "pos_1784850000"
+        "signal_position_key": "pos_1784850000",
+        "oco_order_list_id": "12345678",
+        "take_profit_price": "67000.00",
+        "stop_loss_price": "63000.00"
       }
     ],
     "count": 1,
@@ -524,13 +523,13 @@ stored exchange/credential payloads are removed from the response.
 
 `POST /user?request_type=binance_order_preview`
 
-Uses the same request fields as `binance_order`, but does **not** place an
-exchange order. The API applies exchange precision rules, validates TP/SL
-direction, checks minimum notional requirements and verifies the authenticated
-account's available balance before returning the irreversible-operation
-summary. Order placement is supported for **Spot only** — see the prohibition
-note on `binance_order` below. A successful preview is not a balance
-reservation; execution repeats validation because market/account state can
+Uses the same business fields as `binance_order`, but does **not** place an
+exchange order or reserve balance. The API reads current Binance Spot symbol
+filters, rounds quantity to an increment valid for both limit and market legs,
+rounds prices to the price tick, validates minimums and checks the linked
+account's available base-asset balance. Placement is supported for **Spot
+long exits only**. A successful preview is not a balance reservation;
+execution repeats validation because market, filters and account balances can
 change.
 
 **Response:**
@@ -546,7 +545,12 @@ change.
     "stop_loss_price": "63000.00",
     "price_precision": 2,
     "quantity_precision": 3,
-    "minimum_notional": 10,
+    "minimum_notional": "5",
+    "minimum_quantity": "0.00001",
+    "maximum_quantity": "9000",
+    "price_tick_size": "0.01",
+    "quantity_step_size": "0.00001",
+    "stop_loss_execution": "market",
     "balance_asset": "BTC",
     "available_balance": "0.010",
     "required_balance": "0.001",
@@ -560,11 +564,22 @@ change.
 }
 ```
 
-`market_type` is always `"spot"` and `leverage` is always `1`; futures order
-placement is not permitted (see below).
+`position_side` is the user's position direction (`BUY` means a long Spot
+holding); `order_side` is the actual Binance order side (`SELL`). This endpoint
+does not create an entry buy. It attaches exits to an existing Spot balance.
+`stop_loss_price` is a trigger price; after it triggers, a market sell executes
+at the available price and can slip. The TP leg is a `LIMIT_MAKER` sell at
+`take_profit_price`. Binance may reject a TP price that would immediately take
+liquidity.
 
-Use `price_precision` and `quantity_precision` from this response to format all price
-and quantity strings in the subsequent `binance_order` request.
+`market_type` is always `"spot"` and `leverage` is always `1`; Futures order
+placement is not permitted. The preview returns actual normalized values and
+the filter increments used. Clients should show those returned values in the
+confirmation step rather than relying on locally rounded inputs.
+
+`idempotency_key` is required for placement, not for preview. If the client
+creates it before preview, it must reuse it for the matching placement and all
+retries. Use the same `quantity`, TP and SL values from the preview response.
 
 The client must obtain a successful preview and require explicit user
 confirmation before calling `binance_order`.
@@ -573,57 +588,63 @@ confirmation before calling `binance_order`.
 
 `POST /user?request_type=binance_order`
 
-Places an OCO (One-Cancels-Other) order on Binance. Combines a Take-Profit limit order and a Stop-Loss stop-limit order. When one triggers, the other is automatically cancelled.
+Places a Spot OCO (One-Cancels-Other) exit on Binance for an existing long
+balance. The TP leg is a `LIMIT_MAKER` sell. The SL leg is a `STOP_LOSS`
+market sell: `stop_loss_price` triggers the sale, but the final fill price is
+not guaranteed and may be lower during fast markets. Binance cancels the other
+leg when one leg completes. The implementation uses Binance's current
+`POST /api/v3/orderList/oco` route: `aboveType=LIMIT_MAKER` with
+`abovePrice` for take-profit, and `belowType=STOP_LOSS` with
+`belowStopPrice` for the stop trigger. It does not send a stop-limit price or
+time-in-force because the stop leg is a market order. See Binance's
+[Spot REST API reference](https://developers.binance.com/en/docs/products/spot/rest-api).
 
 Requires Binance API keys linked.
 
 :::{important}
-Before using this endpoint, the user's Binance API key must have the **Enable Spot & Margin Trading** permission enabled in Binance. The key must also restrict access to trusted IPs and include the Beyin Finance Binance proxy static IP in the Binance API whitelist:
+Before using this endpoint, the user's Binance API key must allow Spot trading and account/balance reads. Keep withdrawals disabled. If the key is IP-restricted, allow the current Beyin Finance Binance egress address:
 
 `3.120.214.198`
 
-Orders sent through Beyin Finance are routed to Binance from this static IP, so Binance may reject order placement if the IP is not whitelisted.
+Binance may reject signed requests if this address is not included in the key's IP allowlist.
 :::
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `symbol` | string | Yes | e.g. `"BTCUSDT"` |
-| `side` | string | Yes | `"BUY"` or `"SELL"` - your entry side (OCO exit side is inverted) |
-| `quantity` | string | Yes | Amount to sell/buy when TP or SL triggers (formatted to `quantity_precision`) |
-| `entry_price` | string | No | Optional reference entry price (formatted to `price_precision`) |
-| `take_profit_price` | string | Yes | Take-profit limit price (formatted to `price_precision`) |
-| `stop_loss_price` | string | Yes | Stop-loss trigger price (formatted to `price_precision`) |
+| `side` | string | Yes | Position direction. Spot long exits require `"BUY"`; `"SELL"` short positions are not supported |
+| `quantity` | string | Yes | Base-asset amount to sell. Preview normalizes this to the Binance Spot limit and market quantity increments |
+| `entry_price` | string | No | Optional reference price recorded with the order; it does not submit an entry order |
+| `take_profit_price` | string | Yes | TP limit-sell price. Preview normalizes it to the symbol's price tick |
+| `stop_loss_price` | string | Yes | SL market-sell trigger price. It is not a guaranteed execution price |
 | `market_type` | string | No | Must be `"spot"` (default). `"futures"` is rejected with HTTP 403 — futures order placement is prohibited (see note below). |
 | `order_source` | string | Yes | `"signal"` when entering an active Signal + Orders signal; `"independent"` for an order not linked to a signal |
 | `signal_position_key` | string | Conditional | Opaque signal position key required for `order_source=signal`; forbidden for independent orders |
-| `idempotency_key` | string | Yes | 16-128 letters, numbers, `_` or `-`; generate before preview and reuse for every retry |
+| `idempotency_key` | string | Yes | 16-128 letters, numbers, `_` or `-`; reuse the same key for retries of the same order |
 
 :::{warning}
-All price and quantity values **must** be formatted as strings using the exchange precision
-returned by `binance_order_preview`. Use `price_precision` for all price fields and
-`quantity_precision` for quantity. Binance rejects orders with incorrect decimal precision.
-
-Example: If `price_precision: 2` → send `"67000.00"` not `67000` or `"67000.001"`.
-If `quantity_precision: 3` → send `"0.001"` not `0.001` or `"0.0010"`.
+Send decimal values as strings. Price decimal-place counts alone do not capture
+increments such as `0.05`; the preview rounds to and returns the actual
+`price_tick_size` and `quantity_step_size` values used.
 :::
 
 :::{note}
-- Prices and quantities must be sent as strings formatted to the exchange precision returned by preview. The API validates precision and rejects misformatted values.
+- The preview reports the normalized prices, quantity, minimums, tick size and quantity increment. Confirm the values that the API will actually submit.
 - During preview and immediately before a real submission, the API validates
   account balance and order constraints again.
 - The same idempotency key must be reused for retries of the same logical order.
 - For `order_source=signal`, provide the opaque `signal_position_key` returned
   by the signal endpoint.
+- Spot OCO is an exit for an existing base-asset balance. It does not buy the
+  coin or create a short position.
+- The stop-loss is a market sell after its trigger. Price gaps and low liquidity
+  can cause slippage; the trigger price is not a guaranteed fill price.
 :::
 
 :::{warning}
-**Futures order placement is prohibited.** For legal and regulatory
-compliance, Beyin Finance does not send futures orders to the exchange. Only
-spot orders can be placed through `binance_order` / `binance_order_preview`; a
-request with `market_type="futures"` is rejected with HTTP 403. Futures
-**market data** (reading prices, klines, symbol info) remains available, and
-futures may still be used in backtesting — only live futures **order
-submission** is blocked.
+**Futures order placement is not available.** Futures market data and
+backtesting remain separate capabilities; live OCO submission accepts Spot
+only and rejects `market_type="futures"` with HTTP 403.
 :::
 
 **Example body:**
@@ -654,9 +675,11 @@ submission** is blocked.
     "quantity": "0.00100",
     "take_profit_price": "67000.00",
     "stop_loss_price": "63000.00",
+    "take_profit_order_type": "LIMIT_MAKER",
+    "stop_loss_execution": "market",
     "orders": [
       {"symbol": "BTCUSDT", "orderId": 111, "type": "LIMIT_MAKER"},
-      {"symbol": "BTCUSDT", "orderId": 222, "type": "STOP_LOSS_LIMIT"}
+      {"symbol": "BTCUSDT", "orderId": 222, "type": "STOP_LOSS"}
     ],
     "signal_position_key": "pos_1784850000",
     "order_source": "signal",
@@ -673,14 +696,67 @@ stored response with `idempotent_replay=true`.
 {"ok": true, "data": {"status": "processing", "idempotency_key": "idem_1784990000", "message": "Order submission is being verified."}}
 ```
 
-The client must not create a new key or blindly resubmit while an order is in a
-processing state. Show the order status to the user and poll order history.
+If Binance definitively rejects the request, the API returns an actionable
+error and remembers the idempotency result. If the same key is still being
+processed, the API returns HTTP 202 with `status: "processing"`. If the
+exchange response is ambiguous (for example, a timeout or server error after
+submission), the API first queries Binance using the same OCO client order ID.
+A recovered order is returned as submitted. If the result still cannot be
+verified, it returns HTTP 202 with `status: "unknown_checking"`. For either
+pending state, the client must keep the same key and must not submit a
+duplicate. Refresh `order_history` before taking another action.
 
 **Errors:**
-- 400: Missing/non-finite/non-numeric fields, invalid source/link combination, Futures market, precision/minimum-notional failure, insufficient available balance, or invalid idempotency key
+- 400: Invalid fields, unsupported Spot short direction, invalid source/link combination, invalid idempotency key, insufficient balance, or a locally detected filter/minimum violation
+- 403: Futures submission or Binance credential/permission rejection
 - 404: A linked active signal does not exist for the authenticated user
 - 409: The key was reused with a different order, or the linked signal does not match the symbol
-- 503: Balance or order submission could not be verified; the order was not submitted
+- 422: Binance definitively rejected the order or its exchange-side order filters failed
+- 429: Binance rate limit; `retry_after` may be present
+- 503: Filters, balance or a required service could not be verified; the order was not submitted
+- 202: Submission is still processing or its outcome is ambiguous; check `order_history` and do not duplicate the order
+
+### Cancel Binance OCO Order
+
+`POST /user?request_type=binance_order_cancel`
+
+Cancels an active Spot OCO order that belongs to the authenticated account. The
+API verifies the `order_history_id` against Beyin Finance's stored order record,
+checks the current Binance order-list state, and then requests cancellation.
+If a TP or SL leg completes first, the API reports that the order is already
+closed instead of claiming it was cancelled. A timeout is reconciled against
+Binance before a final result is returned.
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `symbol` | string | Yes | USDT Spot pair, e.g. `"BTCUSDT"` |
+| `order_history_id` | string | Yes | Account-scoped ID returned by `order_history` |
+
+**Example body:**
+```json
+{"symbol": "BTCUSDT", "order_history_id": "order#12345678"}
+```
+
+**Response:**
+```json
+{
+  "ok": true,
+  "data": {
+    "status": "cancelled",
+    "cancelled": true,
+    "exchange_status": "ALL_DONE",
+    "order_history_id": "order#12345678",
+    "order_list_id": "12345678",
+    "symbol": "BTCUSDT",
+    "local_status_synced": true
+  }
+}
+```
+
+`status` can be `cancelled`, `already_closed`, `already_filled`, or
+`unknown_checking`. For `unknown_checking` (HTTP 202), refresh `order_history`
+before retrying. HTTP 404 means no matching account-owned active Spot OCO was
+found; HTTP 409 means the stored record cannot be cancelled as a Spot OCO.
 
 ### Get Notifications
 
@@ -898,7 +974,7 @@ afterward.
 - 400: "Label must be 1-64 characters"
 - 400: "Maximum 1 API key allowed. Delete your existing key first."
 - 403: "api_key_generate requires JWT authentication"
-- 503: API key store unavailable (`"code": "api_key_store_unavailable"`). No key
+- 503: Temporary service unavailability (`"code": "api_key_store_unavailable"`). No key
   was created and no secret was issued; retry the request.
 
 ### Get API Key Status
@@ -930,7 +1006,7 @@ request. The secret is never returned by this operation.
 When no key exists, `has_key` is `false` and `key` is `null`.
 
 **Errors:**
-- 503: API key store unavailable (`"code": "api_key_store_unavailable"`);
+- 503: Temporary service unavailability (`"code": "api_key_store_unavailable"`);
   retry with backoff.
 
 ### Revoke API Key
@@ -954,7 +1030,7 @@ Revocation cannot be undone — issue a new key with `api_key_generate`.
 - 400: "api_key_id required"
 - 403: "api_key_revoke requires JWT authentication"
 - 403: "Key not found or not owned by user"
-- 503: API key store unavailable (`"code": "api_key_store_unavailable"`). The key
+- 503: Temporary service unavailability (`"code": "api_key_store_unavailable"`). The key
   was not deleted and still authenticates; retry the request.
 
 ### Authentication Flow (Developer API Keys)
@@ -1410,9 +1486,9 @@ Backtest requests remain backward compatible with the original crypto fields:
 For non-crypto datasets, send instrument metadata alongside the legacy field:
 `symbol` (for example `AAPL`, `EURUSD`, `GOLD`), `asset_class`
 (`crypto`, `stock`, `etf`, `forex`, `index`, `commodity`), `provider`,
-`market`, and optionally `exchange`. The service reads partitioned candles from
-the matching `DATAS/{asset_class}/{market}/{symbol}/{timeframe}/ for crypto and DATAS/{market}/{symbol}/{timeframe}/ for non-crypto` dataset when present and
-falls back to the legacy `DATAS/{COIN}USDT_{TIMEFRAME}.txt` files for crypto.
+`market`, and optionally `exchange`. The API selects available candle data
+using the supplied instrument and timeframe. Supported legacy crypto requests
+remain compatible with the current request format.
 Yahoo-backed non-crypto datasets currently use simple app symbols and daily
 data: `us_stocks` (`AAPL`, `NVDA`, `TSLA`, `MSFT`, `AMZN`, `META`), `etfs`
 (`SPY`, `QQQ`), `forex` (`EURUSD`, `GBPUSD`, `USDJPY`), and `commodities`
@@ -1428,6 +1504,29 @@ strategy's stored values (spot + long by default). `market` here remains the
 **dataset** namespace (which candles to read), which is a separate concept from
 `market_type` (spot vs futures execution).
 
+**Credit charge:** Each distinct coin with usable data costs **0.5 Beyin
+credits**. A single-coin `run` costs 0.5 credits; `full_range` and `portfolio`
+cost 0.5 credits per coin that passes data/range validation. The full amount is
+reserved before processing starts and is refunded if the job fails. The charge does
+not increase with candle count or the number of data windows. `estimate` reports the
+same amount that launch will reserve.
+
+**Candle and execution model for new jobs:** All requested timeframes are
+rebuilt from chronological 1-minute OHLCV data: open is the first source open,
+high/low are the source extremes, close is the latest source close, and volume
+is summed. On each available 1-minute update, the engine updates the forming
+requested-timeframe candle and evaluates the strategy; it does not wait for
+that larger candle to close. A position's
+`signal_time` identifies the candle/update that produced the signal, while
+`time` records the simulated entry time. Exit checks begin with the next
+available 1-minute candle so price movement before the entry is not used.
+Missing 1-minute intervals are not synthesized; an incomplete target-timeframe
+bucket with a gap is not used as a valid candle.
+
+For multi-coin jobs, at most two coins per user are processed at once. Remaining
+coins wait in the job queue; poll `action=status` to show the active and queued
+coins and their per-coin progress.
+
 ### Estimate Cost
 
 `POST /backtest?action=estimate`
@@ -1442,11 +1541,17 @@ strategy's stored values (spot + long by default). `market` here remains the
 | `provider` | string | No | Defaults to `binance` |
 | `market` | string | No | Defaults to `spot` |
 | `exchange` | string | No | Optional venue label |
+| `max_hold_days` | integer | No | Defaults to `30`; affects the estimated data lookahead |
 
 **Response:**
 ```json
-{"action": "estimate", "total_candles": 6527547, "estimated_cost_credits": 0.35, "estimated_duration_seconds": 31, "chunks": 14, "current_credits": 7.35, "can_afford": true}
+{"action": "estimate", "timeframe": "4h", "total_candles": 8334, "source_timeframe": "1m", "source_candles": 2000000, "estimated_cost_credits": 0.5, "credits_per_coin": 0.5, "billable_coins": 1, "estimated_duration_seconds": 31, "estimated_duration_human": "31s", "chunks": 14, "max_active_coins_per_user": 2, "current_credits": 7.35, "can_afford": true}
 ```
+
+`total_candles` describes the requested timeframe; `source_candles` describes
+the 1-minute source data. Duration is an estimate and can change with current
+queue load, strategy complexity, warmup data, and the requested maximum holding
+period.
 
 ### Get Instrument Backtest Info
 
@@ -1462,7 +1567,7 @@ strategy's stored values (spot + long by default). `market` here remains the
 
 **Response:**
 ```json
-{"action": "info", "coin": "BTC", "symbol": "BTCUSDT", "instrument": {"asset_class": "crypto", "provider": "binance", "market": "spot", "symbol": "BTCUSDT"}, "timeframe": "4h", "data_range": {"first_ts": 1514764800, "last_ts": 1784476800, "first_date": "2018-01-01", "last_date": "2026-07-19", "total_candles": 21837}, "strategy": {"slug": "emacross", "candle_count": 32}, "cost_preview": {"credits_if_full": 0.05}, "current_credits": 7.35}
+{"action": "info", "coin": "BTC", "symbol": "BTCUSDT", "instrument": {"asset_class": "crypto", "provider": "binance", "market": "spot", "symbol": "BTCUSDT"}, "timeframe": "4h", "data_range": {"first_ts": 1514764800, "last_ts": 1784476800, "first_date": "2018-01-01", "last_date": "2026-07-19", "total_candles": 18730, "source_timeframe": "1m", "source_candles": 4495200}, "strategy": {"slug": "emacross", "candle_count": 32}, "cost_preview": {"credits_if_full": 0.5, "credits_per_coin": 0.5}, "current_credits": 7.35}
 ```
 
 ### List Available Timeframes
@@ -1477,8 +1582,12 @@ strategy's stored values (spot + long by default). `market` here remains the
 
 **Response:**
 ```json
-{"action": "list_timeframes", "coin": "AAPL", "symbol": "AAPL", "instrument": {"asset_class": "stock", "provider": "yahoo", "market": "us_stocks", "symbol": "AAPL"}, "timeframes": [{"timeframe": "1d", "suffix": "1DAY", "s3_key": "DATAS/us_stocks/AAPL/1d/manifest.json"}]}
+{"action": "list_timeframes", "coin": "AAPL", "symbol": "AAPL", "instrument": {"asset_class": "stock", "provider": "yahoo", "market": "us_stocks", "symbol": "AAPL"}, "timeframes": [{"timeframe": "1d", "suffix": "1DAY", "s3_key": "<opaque data key>"}]}
 ```
+
+Use the documented timeframe and suffix values. Treat any opaque key in this
+response as implementation-defined; clients should not parse it or fetch it
+directly.
 
 ### Run Specified Range Backtest
 
@@ -1502,7 +1611,7 @@ strategy's stored values (spot + long by default). `market` here remains the
 | `commission` | number | No | 0.2 | Commission % |
 | `position_pct` | number | No | 100 | Position size % |
 | `min_gap_candles` | number | No | 4 | Min candles between signals |
-| `max_hold_days` | integer | No | 30 | Maximum holding time. After this timeout the position exits at the next candle open (1–365 days). `max_wait_days` is accepted only as a legacy request alias. |
+| `max_hold_days` | integer | No | 30 | Maximum holding period in days (1–365). If TP, SL, or liquidation is not reached, close at the open of the first available 1-minute candle at or after the deadline. `max_wait_days` is accepted as a legacy request alias. |
 | `min_profit_pct` | number | No | 0.1 | Min profit target % |
 | `max_profit_pct` | number | No | 30 | Max profit target % |
 | `min_loss_pct` | number | No | 0.1 | Min stop loss % |
@@ -1510,6 +1619,15 @@ strategy's stored values (spot + long by default). `market` here remains the
 | `signal_filter_mode` | string | No | `"clamp"` | `"clamp"` (adjust to limits) or `"reject"` (skip signal) |
 
 **Notes:**
+- New jobs evaluate strategy conditions on the forming requested-timeframe
+  candle as 1-minute source candles arrive. The requested-timeframe candle does
+  not need to close before a signal can be produced. `signal_time` is the
+  signal's display timestamp; `time` is the simulated entry timestamp.
+- `max_hold_days` defaults to 30. If neither TP, SL, nor liquidation closes a
+  position before its deadline, it closes at the open of the first available 1-minute candle
+  whose timestamp is at or after that deadline. This is a maximum holding-time
+  exit, not a trailing exit. The old `max_wait_days` key remains accepted for
+  queued legacy requests.
 - **Spread** is automatically determined by crypto coin volume tier for legacy Binance crypto. Non-crypto datasets currently use the default low-volume fallback unless the backend is extended with asset-class-specific spread rules.
 - **signal_filter_mode = "clamp"** (default): If strategy TP exceeds `max_profit_pct`, it's clamped to max. If SL exceeds `max_loss_pct`, clamped to max. Signals below `min_profit_pct` are always skipped.
 - **signal_filter_mode = "reject"**: Signals that exceed any min/max limit are completely skipped.
@@ -1517,21 +1635,41 @@ strategy's stored values (spot + long by default). `market` here remains the
 
 ### Exit scenarios in the completed result
 
-The engine emits one normal result plus a compact `summary.exit_scenarios`
-bundle. It does not create a separate result matrix. The same entry/exit stream
-is evaluated with three TP references:
+New jobs return one ordinary result plus `summary.exit_scenarios`. The user
+chooses which TP reference to display after the backtest; the TP/SL collision
+rule is fixed and is not a request option. The default and marketplace view is
+`body`. The same entry stream is evaluated against three TP references
+using 1-minute candles:
 
-- `body`: long `max(open, close) >= TP`; short `min(open, close) <= TP`.
-- `midpoint`: long `(max(open, close) + high) / 2 >= TP`; short
-  `(min(open, close) + low) / 2 <= TP`.
-- `wick`: long `high >= TP`; short `low <= TP`.
+- `body`: long TP is reached when `max(open, close) >= TP`; short TP is reached
+  when `min(open, close) <= TP`.
+- `midpoint`: long TP is reached when `(max(open, close) + high) / 2 >= TP`;
+  short TP is reached when `(min(open, close) + low) / 2 <= TP`.
+- `wick`: long TP is reached when `high >= TP`; short TP is reached when
+  `low <= TP`.
 
-SL and liquidation always use the wick. If a candle touches both TP and SL,
-the result has `same_candle_conflict=true`; the UI can display either
-`pessimistic` (SL first) or `optimistic` (TP first). There is no third
-`ambiguous` result. The selected line is drawn opaque and thick; the other TP
-references are translucent dashed overlays. Marketplace publication requires
-`body` TP + `wick` SL, while midpoint/wick remain analysis views.
+SL and liquidation checks use the 1-minute wick. If TP and SL are reached in
+the same 1-minute candle, SL wins; liquidation takes precedence if its level is
+also reached. A long SL fill is the most adverse of the stop, candle open, and
+low (`min(open, low, SL)`); a short SL fill is the most adverse of the stop,
+candle open, and high (`max(open, high, SL)`). TP fills at its target price.
+`all_positions` carries `tp_modes` and aligned arrays named
+`scenario_exit_times`, `scenario_exit_prices`, `scenario_results`, and
+`scenario_close_types`. The integer `scenario_conflict_mask` uses the same
+mode order, with bit 0 for `body`, bit 1 for `midpoint`, and bit 2 for `wick`.
+The selected `trades` view includes `same_candle_conflict` when any of those
+scenarios had a same-candle TP/SL collision.
+
+`summary.exit_scenarios.scenarios` contains one compact summary and equity
+curve for each TP reference. `all_positions` stores shared entry fields once
+and aligned arrays for each mode's exit time, price, result, and close type;
+the API does not repeat a full trade object for every TP reference. The
+selected line can be shown fully opaque while the other two TP references
+remain dashed and translucent. Marketplace publication requires `body` TP
+with wick-based SL; `midpoint` and `wick` are analysis views.
+
+Previously saved results may retain the exit fields from the engine version
+that originally created them. These M1 rules apply to newly launched jobs.
 
 Each strategy signal may calculate a different TP/SL price; fixed percentages
 are only one valid condition. The generator emits a single fire-and-forget OCO
@@ -1541,7 +1679,7 @@ timeout and defaults to 30 days.
 
 **Response:**
 ```json
-{"action": "run", "mode": "async_chunked", "job_id": "1784936800_6a2326", "cost_credits": 0.05, "remaining_credits": 7.30, "chunks": 1, "status": "dispatched", "poll_actions": {"status": "?action=status&job_id=1784936800_6a2326", "result": "?action=result&job_id=1784936800_6a2326"}}
+{"action": "run", "mode": "async_chunked", "job_id": "1784936800_6a2326", "cost_credits": 0.5, "remaining_credits": 6.85, "chunks": 1, "status": "dispatched", "poll_actions": {"status": "?action=status&job_id=1784936800_6a2326", "result": "?action=result&job_id=1784936800_6a2326"}}
 ```
 
 ### Full Range Backtest (for Marketplace)
@@ -1554,8 +1692,13 @@ timeout and defaults to 30 days.
 | `coins` | string[] | Yes |
 | `timeframe` | string | Yes |
 | `asset_class` / `provider` / `market` / `exchange` | string | No |
+| `max_hold_days` | integer | No | Maximum holding period in days; default 30, range 1–365 |
 
-Each requested instrument runs as a separate chunk. Required for `marketplace_publish` with `signal_mode=full`.
+Each requested instrument is processed separately; longer histories may
+be split into multiple data windows. New jobs rebuild the selected timeframe
+from 1-minute source data. At most two coins are processed per user at once;
+additional coins wait in the queue and appear in the status response. This
+action is required for `marketplace_publish` with `signal_mode=full`.
 
 **Example body:**
 ```json
@@ -1564,7 +1707,7 @@ Each requested instrument runs as a separate chunk. Required for `marketplace_pu
 
 **Response:**
 ```json
-{"action": "full_range", "job_id": "1784936800_fr_abc", "coins": ["BTC", "ETH", "SOL"], "chunks": 3, "cost_credits": 0.15, "remaining_credits": 7.20, "status": "dispatched", "poll_actions": {"status": "?action=status&job_id=1784936800_fr_abc", "result": "?action=result&job_id=1784936800_fr_abc"}}
+{"action": "full_range", "job_id": "1784936800_fr_abc", "coins": ["BTC", "ETH", "SOL"], "chunks": 3, "cost_credits": 1.5, "remaining_credits": 5.85, "status": "dispatched", "poll_actions": {"status": "?action=status&job_id=1784936800_fr_abc", "result": "?action=result&job_id=1784936800_fr_abc"}}
 ```
 
 ### Launch Portfolio Backtest
@@ -1578,12 +1721,17 @@ at most one position per coin at a time. Signals that arrive with no free
 slot are skipped (and counted). Commission and per-coin spread are applied
 exactly as in single-coin runs.
 
+The portfolio uses the same 1-minute source and exit rules as `run`. Set
+`max_hold_days` to override the 30-day maximum holding period. At most two coins
+are processed at a time per user; any other selected coins are queued.
+
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `strategy_name` | string | Yes | |
 | `coins` | string[] | Yes | 2–50 legacy coin/instrument labels |
 | `asset_class` / `provider` / `market` / `exchange` | string | No | Shared dataset namespace for the selected instruments |
 | `timeframe` | string | Yes | |
+| `max_hold_days` | integer | No | Maximum holding period in days; default 30, range 1–365 |
 | `divide` | integer | No | 1–20; default = number of coins (capped at 20) |
 | `initial_balance` | number | No | Default 100 |
 | `commission` | number | No | Percent, default 0.2 |
@@ -1596,7 +1744,7 @@ exactly as in single-coin runs.
 
 **Response:**
 ```json
-{"action": "portfolio", "job_id": "pf_1784936800_ab12cd", "coins": ["BTC", "ETH", "SOL"], "divide": 3, "initial_balance": 100, "chunks": 3, "cost_credits": 0.25, "status": "dispatched", "poll_actions": {"status": "?action=status&job_id=pf_1784936800_ab12cd", "result": "?action=result&job_id=pf_1784936800_ab12cd"}}
+{"action": "portfolio", "job_id": "pf_1784936800_ab12cd", "coins": ["BTC", "ETH", "SOL"], "divide": 3, "initial_balance": 100, "chunks": 3, "cost_credits": 1.5, "remaining_credits": 5.85, "status": "dispatched", "poll_actions": {"status": "?action=status&job_id=pf_1784936800_ab12cd", "result": "?action=result&job_id=pf_1784936800_ab12cd"}}
 ```
 
 The portfolio result (fetched with `action=result`) contains, in addition to
@@ -1623,12 +1771,11 @@ drawdown.
 
 ### Backtest Launch Limits
 
-Launching a backtest (`action=run`, `full_range`, or `portfolio`) is a heavy,
-asynchronous operation. To keep the platform fair when many people run jobs at
-once, each account has a limit on how many backtest jobs it can have **running
-at the same time**. This limit is not a fixed plan tier — it adapts to current
-platform load, so it is higher when the platform is idle and lower when it is
-busy.
+Backtest launch actions (`action=run`, `full_range`, or `portfolio`) can return
+HTTP 429 when the account's current launch limit has been reached. The response
+includes `current_running`, `max_concurrent`, and `retry_after`; these counts
+describe that account's current request state and are not a platform-wide
+throughput guarantee. Follow `Retry-After` before submitting another launch.
 
 When you exceed it, the launch is rejected with HTTP 429 and
 `reason: "backtest_concurrency_limit"`:
@@ -1637,17 +1784,15 @@ When you exceed it, the launch is rejected with HTTP 429 and
 {
   "error": "You already have the maximum number of backtests running. Wait for one to finish, then try again.",
   "reason": "backtest_concurrency_limit",
-  "current_running": 4,
-  "max_concurrent": 4,
+  "current_running": 2,
+  "max_concurrent": 3,
   "retry_after": 15
 }
 ```
 
-A `Retry-After` header accompanies the response. This limit applies **only** to
-the three launch actions. Polling `action=status`, fetching `action=result`,
-and every other backtest action are never rejected for this reason — a job you
-already started always remains pollable to completion. Accepted launches keep
-returning `"status": "dispatched"` as before. See the
+A `Retry-After` header accompanies the response. Jobs already accepted remain
+available through the documented status and result actions. Accepted launches
+keep returning `"status": "dispatched"` as before. See the
 [Common `reason` codes](#common-reason-codes) table for the full contract and
 the related `backtest_capacity_exceeded` and `strategy_generation_in_progress`
 reasons.
@@ -1674,7 +1819,7 @@ portfolio job (same shape as a single-coin result: `summary`, `trades`).
 
 **Response (running):**
 ```json
-{"job_id": "...", "status": "running", "progress_pct": 65, "elapsed_seconds": 42, "estimated_remaining_seconds": 22}
+{"job_id": "...", "status": "running", "progress_pct": 65, "elapsed_seconds": 42, "estimated_remaining_seconds": 22, "coin_progress": {"BTC": {"status": "running", "progress_pct": 65}, "ETH": {"status": "queued", "progress_pct": 0}}, "active_coins": ["BTC"], "queued_coins": ["ETH"], "max_active_coins_per_user": 2}
 ```
 
 **Response (failed):**
@@ -1685,7 +1830,9 @@ portfolio job (same shape as a single-coin result: `summary`, `trades`).
 Failed-job credit recovery is automatic and is not a customer endpoint. The
 status response contains only the customer-visible job state.
 
-Status values: `running`, `completed`, `failed`
+Status values: `queued`, `running`, `scanning`, `completed`, `failed`. The
+per-coin status map and active/queued coin lists let clients explain progress
+when a multi-coin job is waiting for earlier coins to finish.
 
 ### Get Result
 
@@ -1707,9 +1854,33 @@ Status values: `running`, `completed`, `failed`
     "best_trade_pct": 5.33, "worst_trade_pct": -10.45
   },
   "all_positions": [], "trades": [],
-  "total_positions": 15, "total_trades": 7, "cost_credits": 0.05
+  "total_positions": 15, "total_trades": 7, "cost_credits": 0.5
 }
 ```
+
+The result's `summary.exit_scenarios` reports `tp_modes`, the `body` default,
+the `wick` stop model, `source_timeframe: "1m"`, and the fixed
+`same_candle_policy: "stop_first"`. Each of `scenarios.body`,
+`scenarios.midpoint`, and `scenarios.wick` contains its own summary metrics and
+equity curve (`final_balance`, `total_return_pct`, `max_drawdown_pct`,
+`profit_factor`, `win_rate`, trade counts, and `equity_curve`). Position and
+trade records keep shared fields once; `all_positions` has the per-mode arrays
+and `trades` contains the default selected trade series. `signal_time` identifies
+the signal candle and `time` identifies the simulated entry time.
+
+Result merging is serialized per job. If a merge is still running or the
+expected worker chunks are not yet available, `action=result` may return HTTP
+202 with a retryable message; poll `action=status` and request the result again.
+Incomplete cached payloads are not considered completed results.
+
+New results may include optional market-data quality metadata:
+`data_quality` for a single-coin run, or `data_quality_by_coin` for full-range
+and portfolio jobs. Each record reports `available_start_ts`,
+`available_end_ts`, `incomplete_partitions`, `estimated_missing_candles`, and
+`latest_candle_age_seconds`. Missing-candle counts are estimates derived from
+the stored one-minute partitions. A full-range backtest includes only data
+available in the source store; it does not synthesize history before the
+reported start timestamp.
 
 ### Delete Backtest
 
@@ -1747,7 +1918,7 @@ The legacy `{strategy_name, backtest_key}` request remains backward compatible.
 
 **Response:**
 ```json
-{"ok": true, "data": {"backtests": [{"job_id": "...", "strategy_name": "emacross", "coin": "BTC", "timeframe": "4h", "cost_credits": 0.05, "created_at": 1784936800, "summary": {"total_trades": 7, "win_rate": 71.43, "total_return_pct": 5.46}}], "count": 1, "last_evaluated_key": "base64...", "has_more": true}}
+{"ok": true, "data": {"backtests": [{"job_id": "...", "strategy_name": "emacross", "coin": "BTC", "timeframe": "4h", "cost_credits": 0.5, "created_at": 1784936800, "summary": {"total_trades": 7, "win_rate": 71.43, "total_return_pct": 5.46}}], "count": 1, "last_evaluated_key": "base64...", "has_more": true}}
 ```
 
 Filtering is applied before pagination. The cursor represents the last
@@ -1833,7 +2004,7 @@ must continue while `has_more` is true even if a filtered page is empty.
 `GET /tradingdata?request_type=marketplace_browse&limit=50`
 
 Guest-accessible: this endpoint may be called without authentication and is
-subject to API-edge abuse protection. When credentials are supplied the caller
+subject to service-level protections. When credentials are supplied the caller
 identity is tracked for audit and entitlement checks.
 
 | Query parameter | Type | Required | Description |
@@ -1857,7 +2028,7 @@ page sizes return HTTP 400 instead of silently restarting at page one.
 
 `GET /tradingdata?request_type=marketplace_listing&listing_id=lst_abc123`
 
-Guest-accessible and subject to API-edge abuse protection. The public response
+Guest-accessible and subject to service-level protections. The public response
 masks owner data and does not include caller-specific ownership
 or subscription state. Use the authenticated `/user` listing-detail endpoint
 below when those fields are needed.
@@ -2107,8 +2278,8 @@ Must have (or had) a subscription to review. One review per user per listing. Ca
 
 `GET /tradingdata?request_type=marketplace_reviews&listing_id=lst_abc123&limit=20`
 
-Guest-accessible: callable without authentication, subject to API-edge abuse
-protection. When credentials are supplied the caller identity is tracked for
+Guest-accessible: callable without authentication, subject to service-level
+protections. When credentials are supplied the caller identity is tracked for
 rate limiting, audit and entitlement checks.
 
 | Query parameter | Type | Required |
@@ -2131,8 +2302,8 @@ next page. Malformed cursors and non-integer limits return HTTP 400.
 ## Trading Data
 
 Most Trading Data requests accept an authenticated caller, but a subset is
-**guest-accessible** (callable without credentials, subject to API-edge abuse
-protection) — see the guest list in the [Authentication](#authentication)
+**guest-accessible** (callable without credentials, subject to service-level
+protections) — see the guest list in the [Authentication](#authentication)
 section. Endpoints not on that list require a tracked caller identity and
 return HTTP 401 without one. Some responses may still be license-gated by plan
 after the caller is identified (for example, `trend_signals` pages beyond the
@@ -2152,9 +2323,9 @@ first).
 {"items": [{"coin_name": "BTC", "graph_type": "4h", "timestamp": "1784900000", "way": "BUY", "is_return_to_trend": false}], "page": 0, "count": 10, "last_page": false}
 ```
 
-Collection items are lightweight discovery records. Clients must not rely on
-`klines_data` in this response; request the selected signal through
-`trend_signal_detail` when rendering its chart.
+Collection items are lightweight discovery records. Request a selected signal
+through `trend_signal_detail` for its metadata and trend-line anchors; fetch
+historical candles separately when rendering a full chart.
 
 ### Trend Signal Detail
 
@@ -2174,12 +2345,8 @@ Collection items are lightweight discovery records. Clients must not rely on
 `trend_data` contains the calculated high/low trend-line anchor points. Each
 point is `[timestamp_ms, candle_index, price]`; the two values are anchors,
 not candles. The client draws the line from anchor 1 through anchor 2 and
-stops it at the break candle.
-
-`klines_data` is the signal snapshot used to render the historical chart. A
-detail response intended for the Trend Break history UI must include the full
-signal snapshot returned by the API. Storage-only fields and internal links are
-not part of the public response contract.
+stops it at the break candle. This response does not provide the full candle
+history; use the documented candle-history endpoint when the chart needs it.
 
 ### Market Ticker
 
@@ -2194,60 +2361,9 @@ Price and quantity precision metadata may exist server-side for symbols that
 are not currently trading, but those symbols are excluded from this ticker
 catalog until they become trading-enabled again.
 
-Instrument precision is maintained in one compact server manifest:
-`INSTRUMENTS/instrument_manifest_v1.json`. The file is grouped by market so
-repeated fields such as `asset_class`, `provider`, `exchange`, `market`, and
-`quote_asset` are stored once per market group. Each symbol only stores values
-that differ from that group's `defaults`. Backtest, trading precision checks,
-and multi-market routing use this manifest as the canonical source.
-
-Example manifest shape:
-
-```json
-{
-  "version": 1,
-  "updated_at": "2026-08-13T12:00:00Z",
-  "markets": {
-    "crypto_binance_spot_usdt": {
-      "asset_class": "crypto",
-      "provider": "binance",
-      "exchange": "BINANCE",
-      "market": "spot",
-      "quote_asset": "USDT",
-      "defaults": {},
-      "symbols": {
-        "BTC": {
-          "price_precision": 2,
-          "quantity_precision": 5,
-          "tick_size": "0.01",
-          "step_size": "0.00001",
-          "min_quantity": "0.00001",
-          "min_notional": "5"
-        }
-      }
-    },
-    "us_stocks_yahoo_us_usd": {
-      "asset_class": "stock",
-      "provider": "yahoo",
-      "exchange": "US",
-      "market": "us_stocks",
-      "quote_asset": "USD",
-      "defaults": {
-        "price_precision": 2,
-        "quantity_precision": 6,
-        "tick_size": "0.01",
-        "step_size": "0.000001",
-        "min_quantity": "0.000001",
-        "min_notional": "1"
-      },
-      "symbols": {
-        "AAPL": {"provider_symbol": "AAPL", "display_name": "Apple"},
-        "NVDA": {"provider_symbol": "NVDA", "display_name": "Nvidia"}
-      }
-    }
-  }
-}
-```
+Use the precision and symbol metadata returned by the documented market
+endpoints. Values can vary by instrument; treat the latest API response as
+authoritative and do not depend on a separate file or storage layout.
 
 | Param | Type | Required | Description |
 |-------|------|----------|-------------|
@@ -2288,8 +2404,8 @@ stale-data warning when `_cache` is present.
 
 Returns a lightweight live quote for chart order preparation. This endpoint
 does not submit orders and does not require user Binance credentials. It is
-guest-accessible (callable without authentication, subject to API-edge abuse
-protection); when credentials are supplied the caller is tracked.
+guest-accessible (callable without authentication, subject to service-level
+protections); when credentials are supplied the caller is tracked.
 
 | Param | Type | Required | Description |
 |-------|------|----------|-------------|
@@ -2335,6 +2451,192 @@ previews, currently 5 seconds in the mobile chart. Any real order preview or
 submission must revalidate bid/ask, funding, commission, precision, notional,
 and risk limits server-side.
 
+### Binance Klines
+
+`GET /tradingdata?request_type=get_klines&symbol=BTCUSDT&interval=1h&limit=100&market=spot`
+
+Returns historical Binance candles for Spot or USDⓈ-M Futures market data.
+The route is guest-accessible; callers do not send personal Binance
+credentials.
+
+| Query parameter | Type | Required | Description |
+|-------|------|----------|-------------|
+| `symbol` | string | Yes | USDT pair, e.g. `BTCUSDT` |
+| `interval` | string | No | Default `1h`. Supported: `1m`, `3m`, `5m`, `15m`, `30m`, `1h`, `2h`, `4h`, `6h`, `8h`, `12h`, `1d`, `3d`, `1w`, `1M` |
+| `limit` | integer | No | Default 100, min 1, max 1000 |
+| `market` | string | No | `spot` (default) or `futures` |
+| `start_time` | integer | No | Inclusive Unix epoch in milliseconds |
+| `end_time` | integer | No | Inclusive Unix epoch in milliseconds |
+
+**Response:**
+```json
+{
+  "symbol": "BTCUSDT",
+  "interval": "1h",
+  "market": "spot",
+  "klines": [{
+    "open_time": 1784900000000,
+    "open": "67000.00",
+    "high": "67200.00",
+    "low": "66900.00",
+    "close": "67100.00",
+    "volume": "12.5",
+    "close_time": 1784903599999,
+    "fetched_at": 1784903600000
+  }],
+  "count": 1,
+  "fetched_at": 1784903600000
+}
+```
+
+The response is cached briefly. HTTP 400 means Binance rejected the symbol or
+interval; HTTP 502 indicates an upstream or fetch failure.
+
+### Market Symbol Info
+
+`GET /tradingdata?request_type=market_symbol_info&symbol=BTCUSDT`
+
+Guest-accessible lookup for current instrument availability and exchange
+precision/filter metadata. The result is informational; live order preview
+remains authoritative because exchange filters can change.
+
+| Query parameter | Type | Required | Description |
+|-------|------|----------|-------------|
+| `symbol` | string | Yes | USDT pair such as `BTCUSDT`; `coin` is accepted as an alias |
+
+**Response:**
+```json
+{
+  "symbol": "BTCUSDT",
+  "spot": true,
+  "futures": true,
+  "spot_price_precision": 2,
+  "futures_price_precision": 2,
+  "spot_qty_precision": 5,
+  "futures_qty_precision": 3,
+  "spot_tick_size": "0.01",
+  "spot_quantity_step_size": "0.00001",
+  "spot_market_quantity_step_size": "0.00001",
+  "spot_oco_quantity_step_size": "0.00001",
+  "spot_min_quantity": "0.00001",
+  "spot_market_min_quantity": "0.00001",
+  "spot_min_notional": "5",
+  "spot_min_notional_apply_to_market": true,
+  "futures_max_leverage": 5
+}
+```
+
+Filter values can be `null` when the current manifest does not contain them.
+Do not use missing filter data to submit a live order; `binance_order_preview`
+returns an error until the filters are available.
+
+### Market Live (Forex and Commodities)
+
+`GET /tradingdata?request_type=market_live&category=forex&query=EUR`
+
+Returns the cached live quote list for Dukascopy forex or commodity
+instruments. This route is guest-accessible and does not use Binance keys.
+
+| Query parameter | Type | Required | Description |
+|-------|------|----------|-------------|
+| `category` | string | Yes | `forex` or `commodities` |
+| `query` | string | No | Case-insensitive substring match against symbol or display name |
+| `favorites` | string | No | Comma-separated exact symbols; filters the list before `query` |
+
+**Response:**
+```json
+{
+  "items": [{
+    "symbol": "EURUSD",
+    "display_name": "EUR/USD",
+    "asset_class": "forex",
+    "provider": "dukascopy",
+    "data_source": "Data provided by Dukascopy",
+    "trading_enabled": false,
+    "market_type": "forex",
+    "last_price": "1.08",
+    "change_percent_24h": "0",
+    "quote_volume_24h": "0",
+    "price_precision": 5,
+    "open_time": 1784899940000,
+    "updated_at": 1784900000000
+  }],
+  "page": 0,
+  "last_page": true,
+  "source": "dukascopy",
+  "stale": false
+}
+```
+
+Each quote item also carries `asset_class`, `provider`, `data_source`,
+`trading_enabled`, `market_type`, `change_percent_24h`, `quote_volume_24h`,
+`price_precision`, `open_time`, and `updated_at`. The current cache writes
+`change_percent_24h` and `quote_volume_24h` as `"0"`; they are placeholders,
+not calculated performance or volume figures. `stale` is currently returned
+as `false` by the route and does not independently verify quote age.
+
+An empty list means no cached result is currently available for that category.
+
+### Market Candles (Forex and Commodities)
+
+`GET /tradingdata?request_type=market_candles&category=commodities&symbol=GOLD&timeframe=1h&limit=200`
+
+Returns historical candles for supported Dukascopy instruments. The handler
+uses a short in-memory cache, then fetches Dukascopy data, and then attempts a
+stored-data fallback.
+
+| Query parameter | Type | Required | Description |
+|-------|------|----------|-------------|
+| `category` | string | Yes | `forex` or `commodities` |
+| `symbol` | string | Yes | Dukascopy symbol such as `EURUSD` or `GOLD` |
+| `timeframe` | string | No | Default `1h`; `interval` is an alias. Supported: `1m`, `3m`, `5m`, `15m`, `30m`, `1h`, `2h`, `4h`, `1d` |
+| `limit` | integer | No | Default 200; clamped to 200–500 |
+
+**Response:**
+```json
+{
+  "klines": [{"open_time": 1784900000000, "open": "1.08", "high": "1.09", "low": "1.07", "close": "1.085", "volume": "0", "close_time": 1784903600000}],
+  "candles": [{"open_time": 1784900000000, "open": "1.08", "high": "1.09", "low": "1.07", "close": "1.085", "volume": "0", "close_time": 1784903600000}],
+  "symbol": "EURUSD",
+  "interval": "1h",
+  "timeframe": "1h",
+  "source": "dukascopy",
+  "count": 1
+}
+```
+
+The `candles` and `klines` arrays currently contain the same rows. If neither
+historical source is available, a live-price fallback may return a single
+synthetic candle; do not treat that fallback as a historical series.
+
+### Sentiment Breakout Signals
+
+`GET /tradingdata?request_type=sentiment_breakout_signals&limit=500`
+
+Guest-accessible persisted breakout entries for `BTCUSDT#1h#breakout`. Results
+are returned oldest-first so they can be aligned with candle history.
+
+| Query parameter | Type | Required | Description |
+|-------|------|----------|-------------|
+| `limit` | integer | No | Default 500, min 1, max 500 |
+| `before_timestamp` | integer | No | Return signals with a timestamp earlier than this Unix timestamp in seconds |
+
+**Response:**
+```json
+{
+  "market_key": "BTCUSDT#1h#breakout",
+  "signals": [{"timestamp": 1784900000, "direction": "LONG", "entry_price": "67000.00", "score": 72}],
+  "count": 1,
+  "limit": 500,
+  "has_more": true,
+  "oldest_timestamp": 1784900000,
+  "next_before_timestamp": 1784900000
+}
+```
+
+Send `next_before_timestamp` unchanged as `before_timestamp` for the next
+page. When `has_more` is false, `next_before_timestamp` is `null`.
+
 ### Market Sentiment
 
 `GET /tradingdata?request_type=trend_indicator&market_key=BTCUSDT%231h`
@@ -2350,8 +2652,8 @@ and risk limits server-side.
 
 The product fields are `score` (integer sentiment score) and `direction`
 (e.g. `"BULLISH"` / `"BEARISH"` / `"NEUTRAL"`). The `item` object may carry
-additional internal fields; **treat any field not documented here as
-unstable and ignore it** — do not depend on its presence, name, or value.
+additional fields; **treat any field not documented here as unstable and
+ignore it** — do not depend on its presence, name, or value.
 
 ### Sentiment History
 
@@ -2401,8 +2703,7 @@ supported assets. Cache locally and ignore unknown fields.
 
 The example is representative; the response may include additional platform
 configuration fields. The public payment configuration exposes the Binance
-Account ID used for manual transfers, not the internal Binance Pay receiver
-identifier.
+Account ID used for manual transfers.
 
 ### Get Available Coins
 
@@ -2421,7 +2722,7 @@ Cache this response; the available set changes infrequently.
 
 `GET /tradingdata?request_type=platform_notifications&limit=20`
 
-Guest-accessible and subject to API-edge abuse protection. Returns system
+Guest-accessible and subject to service-level protections. Returns system
 announcements such as new features and maintenance messages.
 
 | Param | Type | Required | Description |
@@ -2437,7 +2738,7 @@ announcements such as new features and maintenance messages.
 
 `GET /tradingdata?request_type=changelog&limit=50`
 
-Guest-accessible and subject to API-edge abuse protection. Returns the platform
+Guest-accessible and subject to service-level protections. Returns the platform
 release history: the current and minimum-supported app versions
 plus dated release entries. Use it to render a "What's New" screen or to decide
 whether to prompt for an app update.
@@ -2474,8 +2775,9 @@ All AI requests use the short `/ai` resource. Integrator requests use the same
 
 The `message` value is required and limited to 4,000 characters. A successful
 request deducts `0.03` credits and returns `cevap` plus optional structured
-`veri`. A Bedrock failure refunds that charge and returns HTTP 503. Insufficient
-credits return HTTP 402 with `{"hata":"Yetersiz kredi","gerekli":0.03}`.
+`veri`. If the AI service is temporarily unavailable, that charge is refunded
+and the endpoint returns HTTP 503. Insufficient credits return HTTP 402 with
+`{"hata":"Yetersiz kredi","gerekli":0.03}`.
 
 **Response:**
 ```json
@@ -2531,8 +2833,8 @@ This is a technical rating feed, not a trade execution endpoint.
 
 `GET /tradingdata?request_type=community_chat&limit=50`
 
-Guest-accessible for reading visible community messages, subject to API-edge
-abuse protection. Use the returned `next_cursor` as the `cursor`
+Guest-accessible for reading visible community messages, subject to service-level
+protections. Use the returned `next_cursor` as the `cursor`
 query parameter for the next page.
 
 | Query parameter | Type | Required | Description |
@@ -2606,8 +2908,8 @@ Followers are automatically notified through their configured channels.
 
 `GET /tradingdata?request_type=community_posts&limit=20`
 
-Guest-accessible for reading visible leader posts, subject to API-edge abuse
-protection. Pagination uses the opaque `next_cursor` response
+Guest-accessible for reading visible leader posts, subject to service-level
+protections. Pagination uses the opaque `next_cursor` response
 value as the next request's `cursor`.
 The feed is returned newest-first by `created_at`. Clients must request bounded
 pages instead of loading the entire community feed at once.
@@ -2748,7 +3050,7 @@ for the next page; a malformed cursor returns HTTP 400.
 
 `GET /tradingdata?request_type=community_leaders&limit=25`
 
-Guest-accessible and subject to API-edge abuse protection.
+Guest-accessible and subject to service-level protections.
 `is_following` is evaluated for the authenticated caller (and is `false` for
 guests); follow and unfollow actions use the `/user` endpoints and require
 authentication.
@@ -2764,6 +3066,35 @@ authentication.
 ```
 
 Return the opaque cursor unchanged; malformed cursors return HTTP 400.
+
+### List Accounts I Follow
+
+`GET /tradingdata?request_type=community_following`
+
+Requires an authenticated account. The result is read from the caller's
+following records rather than only from the current leader directory, so
+accounts remain visible if their leader role changes.
+
+**Response:**
+```json
+{
+  "following": [{
+    "beyin_id": "MTHG7A",
+    "name": "CryptoTrader",
+    "nickname": "cryptotrader",
+    "bio": "Market educator",
+    "avatar_url": "https://example.com/avatar.jpg",
+    "community_verified": true,
+    "is_verified": true,
+    "is_following": true,
+    "post_count": 8,
+    "comment_count": 23,
+    "total_likes": 41,
+    "follower_count": 125
+  }],
+  "count": 1
+}
+```
 
 ### Apply for Community Leader
 
@@ -2866,7 +3197,7 @@ Only accessible by users with approved `"leader"` community role.
     "nickname": "finanskulubupro",
     "community_bio": "Crypto & Forex specialist",
     "avatar_url": "https://...",
-    "avatar_s3_key": "community/avatars/MTHG7A/..."
+    "avatar_s3_key": "<opaque avatar key>"
   }
 }
 ```
@@ -2899,7 +3230,7 @@ The rest of the body shape is unchanged:
 | 429 | Rate limited |
 | 500 | Server error |
 | 502 | Upstream exchange did not return a usable response |
-| 503 | A backing store the request needs is temporarily unavailable |
+| 503 | A required service is temporarily unavailable |
 
 ### Error `code` markers
 
@@ -2910,19 +3241,18 @@ failure so clients can react without parsing the message text.
 |--------|---------|---------------|
 | `session_expired` | The session token itself was missing, invalid, or expired. | Clear the stored session and re-authenticate. |
 | `invalid_credentials` | The Developer API key/secret was rejected or has been revoked. | Issue new API credentials. |
-| `api_key_store_unavailable` | The Developer API key store could not be reached, so no credential was evaluated. Always paired with HTTP 503. | Retry with backoff. Do not rotate credentials and do not clear the session. |
+| `api_key_store_unavailable` | Credentials could not be evaluated because a required service was temporarily unavailable. Always paired with HTTP 503. | Retry with backoff. Do not rotate credentials and do not clear the session. |
 | `jwt_required` | A first-party `/backtest` request declared `auth_type=jwt` but did not carry a JWT header. | Wait for session readiness or sign in again; do not fall back to empty legacy credentials. |
 | `invalid_token` | The JWT supplied to the backtest surface is malformed, expired, or otherwise invalid. | Refresh the session when possible; otherwise clear it and sign in again. |
-| `session_revoked` | The JWT signature was valid but its server-side session is no longer active. | Clear the local session and sign in again. |
+| `session_revoked` | The session is no longer accepted. | Clear the local session and sign in again. |
 
-`api_key_store_unavailable` is the answer for a missing dependency, not a
+`api_key_store_unavailable` indicates a temporary service failure, not a
 rejected credential: it is never a 401 and never a bare 500. It applies to
 `api_key_generate`, `api_key_revoke`, `X-API-Key` /
 `X-API-Secret` authentication on `/user`, and the same header pair on
 `/tradingdata`, `/backtest`, and `/ai`. Invalid or incomplete Developer API
-credentials use HTTP 401 with `invalid_credentials`; the response body for a
-store outage stays generic — no table, resource, or internal error detail is
-exposed.
+credentials use HTTP 401 with `invalid_credentials`; clients should retry a
+503 and must not treat it as a request to replace their credentials.
 
 `session_expired` is returned for a missing, malformed, or expired session
 token, for a missing caller identity, and for every operation that rejects an
@@ -3051,7 +3381,7 @@ Returns all trend break signals the authenticated user is currently tracking.
 }
 ```
 
-Response items share the `trend_signals` schema for metadata and trend lines, but the public detail response **omits the raw `klines_data` snapshot**: it returns only the two `low_trend` anchor points needed to draw the trend line, not the full candle series. See `runtime-integration-notes.md` §1 for the observed live shape. The `klines_data` field above is illustrative of the stored record; do not rely on it being populated in the public response. Internal fields (`gsi_pk`, `ttl`, `telegram_link`, `tracked_users`) are stripped from the response.
+Tracked items use the documented public signal fields and may include `klines_data` when available. Use `trend_signal_detail` for signal metadata and trend-line anchors, and the candle-history endpoint for chart candles. Clients should rely only on the documented response fields.
 
 **Errors:**
 - 401: Authentication required (`"code": "session_expired"`)

@@ -12,6 +12,8 @@ PUBLISHED_SOURCE = "\n".join(
         (ROOT / "README.md").read_text(encoding="utf-8"),
         (ROOT / "docs" / "index.rst").read_text(encoding="utf-8"),
         ENDPOINTS,
+        (ROOT / "docs" / "education.md").read_text(encoding="utf-8"),
+        (ROOT / "docs" / "contributors.md").read_text(encoding="utf-8"),
     ]
 )
 
@@ -191,6 +193,10 @@ class PublicReferenceScopeTests(unittest.TestCase):
         # A documented request/response field of binance_order &
         # order_history — part of the public contract, not an internal leak.
         "signal_position_key",
+        # Opaque object-key fields returned by documented upload/market-data
+        # operations. These names are part of the client contract.
+        "s3_key",
+        "avatar_s3_key",
     }
 
     def test_public_docs_do_not_expose_internal_system_details(self):
@@ -199,8 +205,30 @@ class PublicReferenceScopeTests(unittest.TestCase):
             "Lambda",
             "DynamoDB",
             "S3",
+            "Cloudflare",
+            "AWS WAF",
+            "CF-Connecting-IP",
+            "WAF challenge",
+            "API-edge",
+            "API edge",
+            "Lightsail",
+            "Amazon Bedrock",
+            "Bedrock",
+            "SageMaker",
+            "AWS/src/",
+            "DATAS/",
+            "INSTRUMENTS/",
+            "runtime-integration-notes",
+            "`gsi_pk`",
+            "`ttl`",
+            "`telegram_link`",
+            "`tracked_users`",
+            "server manifest",
+            "rate-limit backend",
+            "rate limit backend",
+            "rate limit store",
+            "Rate limit store",
             "worker",
-            "concurrency",
             "Fair-Share",
             "fair-share",
             "max_workers",
@@ -224,8 +252,12 @@ class PublicReferenceScopeTests(unittest.TestCase):
         scannable_source = PUBLISHED_SOURCE
         for token in self.PUBLIC_CONTRACT_TOKENS:
             scannable_source = scannable_source.replace(token, "")
+        normalized_source = scannable_source.casefold()
         for term in forbidden_terms:
-            self.assertNotIn(term, scannable_source)
+            self.assertNotIn(term.casefold(), normalized_source)
+        # The Binance egress address is intentionally public because users
+        # need it for the exchange's IP allowlist. Keep this separate from
+        # infrastructure provider/topology details, which stay out of docs.
 
     def test_repository_metadata_is_real_and_buildable(self):
         metadata = tomllib.loads(
