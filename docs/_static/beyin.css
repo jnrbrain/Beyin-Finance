@@ -862,6 +862,47 @@ html[data-bf-theme="dark"] .bf-contributor-links a {
   -webkit-overflow-scrolling: touch;
 }
 
+/* Keep the backtest parameter reference inside the content column. Fixed
+   column proportions allow long descriptions and code labels to wrap instead
+   of forcing overlapping cells or a wide horizontal table. */
+section#backtest .wy-table-responsive {
+  max-width: 100%;
+}
+
+section#backtest table.docutils {
+  width: 100%;
+  max-width: 100%;
+  table-layout: fixed;
+}
+
+section#backtest table.docutils th,
+section#backtest table.docutils td {
+  padding: 9px 11px;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: normal;
+}
+
+section#backtest table.docutils th:nth-child(1),
+section#backtest table.docutils td:nth-child(1) {
+  width: 22%;
+}
+
+section#backtest table.docutils th:nth-child(2),
+section#backtest table.docutils td:nth-child(2) {
+  width: 13%;
+}
+
+section#backtest table.docutils th:nth-child(3),
+section#backtest table.docutils td:nth-child(3) {
+  width: 20%;
+}
+
+section#backtest table.docutils th:nth-child(4),
+section#backtest table.docutils td:nth-child(4) {
+  width: 45%;
+}
+
 /* Tablets, half-width and square windows: keep the sidebar, shrink it. */
 @media screen and (min-width: 769px) and (max-width: 1200px) {
   .wy-nav-side,

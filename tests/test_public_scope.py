@@ -29,6 +29,7 @@ class PublicReferenceScopeTests(unittest.TestCase):
         "backtest_history",
         "binance_balance",
         "binance_order",
+        "binance_order_cancel",
         "binance_order_preview",
         "community_chat_delete",
         "community_chat_message",
@@ -88,14 +89,20 @@ class PublicReferenceScopeTests(unittest.TestCase):
     PUBLIC_TRADING_DATA_OPERATIONS = {
         "changelog",
         "community_chat",
+        "community_following",
         "community_leaders",
         "community_posts",
+        "get_klines",
+        "market_candles",
+        "market_live",
         "market_quote",
+        "market_symbol_info",
         "market_ticker",
         "marketplace_browse",
         "marketplace_listing",
         "marketplace_reviews",
         "platform_notifications",
+        "sentiment_breakout_signals",
         "track_trend_break_signal",
         "tracked_trend_break_signals",
         "trend_indicator",
@@ -152,7 +159,7 @@ class PublicReferenceScopeTests(unittest.TestCase):
         self.assertIn("test1_ABC123", ENDPOINTS)
         self.assertIn("create their own local `test1` strategy", ENDPOINTS)
 
-    def test_advanced_strategy_fields_are_not_advertised_as_live(self):
+    def test_unimplemented_exit_fields_are_absent_from_public_strategy_docs(self):
         strategy_reference = ENDPOINTS.split("## Strategy", 1)[1].split(
             "## Backtest", 1
         )[0]
@@ -168,16 +175,17 @@ class PublicReferenceScopeTests(unittest.TestCase):
             "dca_steps",
             "dca_step_pct",
         )
-        self.assertIn("`configuration_pending`", create_section)
         for field in advanced_fields:
-            self.assertIn(f"`{field}`", create_section)
+            self.assertNotIn(f"`{field}`", create_section)
             self.assertNotIn(f'"{field}"', strategy_reference)
             self.assertNotIn(f"| `{field}` |", strategy_reference)
+        self.assertNotIn("fire-and-forget OCO pair", create_section)
 
         runtime_notes = (ROOT / "docs" / "runtime-integration-notes.md").read_text(
             encoding="utf-8"
         )
-        self.assertIn("**`configuration_pending`**", runtime_notes)
+        for field in advanced_fields:
+            self.assertNotIn(f"`{field}`", runtime_notes)
         self.assertNotIn("DONE (documented in endpoints.md Create Strategy", runtime_notes)
 
     # Machine-readable `reason` / status tokens that clients switch on. These
@@ -197,6 +205,8 @@ class PublicReferenceScopeTests(unittest.TestCase):
         # operations. These names are part of the client contract.
         "s3_key",
         "avatar_s3_key",
+        # Public order state returned while an exchange check is pending.
+        "unknown_checking",
     }
 
     def test_public_docs_do_not_expose_internal_system_details(self):

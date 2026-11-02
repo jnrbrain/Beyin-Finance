@@ -1091,15 +1091,19 @@ immediately so you can issue a replacement.
         "summary": "FOMC members emphasized balanced risk assessment...",
         "source": "bloomberg",
         "url": "https://...",
+        "classification_status": "classified",
         "sentiment": "MILDLY_BULLISH",
         "sentiment_label": "MILDLY_BULLISH",
         "sentiment_score": 2,
         "impact": "HIGH",
+        "confidence": 0.88,
+        "expected_volatility": "HIGH",
         "category": "FED",
         "affected_coins": ["BTC", "ETH"],
         "affected_markets": ["CRYPTO", "EQUITY"],
         "country": "US",
         "published_at": "2026-08-30T13:30:00+00:00",
+        "classified_at": "2026-08-30T13:34:00+00:00",
         "timestamp": 1788096600
       }
     ],
@@ -1112,7 +1116,15 @@ immediately so you can issue a replacement.
 }
 ```
 
-**Errors:** 400 if invalid cursor.
+`classification_status` is `classified` when the analysis is available and
+`unclassified` while a source article is waiting for a successful retry. For
+an unclassified item, sentiment, impact, confidence, and volatility are empty
+or zero; clients must show that analysis is pending instead of presenting a
+neutral rating. Old records without this field are treated as classified.
+
+If no matching items exist, `news` is an empty array. The API does not invent
+sample news. **Errors:** 400 if the cursor is invalid; 503 if the data store is
+temporarily unavailable.
 
 ### Get Economic Calendar
 
@@ -1151,6 +1163,7 @@ immediately so you can issue a replacement.
         "source": "forexfactory",
         "scheduled_date": "2026-08-30T12:30:00Z",
         "event_time": "2026-08-30T12:30:00+00:00",
+        "classification_status": "source",
         "impact": "HIGH",
         "forecast": "0.2%",
         "previous": "0.3%",
@@ -1168,7 +1181,13 @@ immediately so you can issue a replacement.
 }
 ```
 
-**Errors:** 401 if unauthenticated, 400 if invalid cursor.
+Calendar entries are ingested directly from the source calendar. Their impact
+is the source-provided impact tier; they do not depend on AI news
+classification. `classification_status` is `source`. If no matching events
+exist, `calendar` is an empty array; no sample events are generated.
+
+**Errors:** 401 if unauthenticated, 400 if the cursor is invalid, or 503 if the
+data store is temporarily unavailable.
 
 ---
 
@@ -1211,16 +1230,9 @@ by the runtime. Live strategy evaluation may include the current forming candle
 so signals do not arrive one candle late; historical backtests exclude the
 evaluation candle to prevent look-ahead.
 The generator evaluates dynamic rules again for every signal, then returns the
-concrete TP-limit and SL-stop prices for that signal. The execution shape is a
-fire-and-forget OCO pair: when one exit fills, the sibling exit is cancelled.
-
-:::{warning}
-Advanced exit and staged-entry fields — `exit_type`, `trail_pct`,
-`time_exit_candles`, `exit_condition`, `entry_type`, `dca_steps` and
-`dca_step_pct` — are planned with lifecycle status `configuration_pending`.
-They are not part of the production request contract and must not be sent or
-relied upon until this reference explicitly marks them live.
-:::
+concrete take-profit and stop-loss prices for that signal. The backtest uses
+the generated prices together with the entry condition and the holding-time
+limit documented below.
 
 :::{note}
 Strategies are always created as private. Use `strategy_visibility` to make
@@ -1481,19 +1493,18 @@ the legacy empty-credential branch.
 - **Specified Range** (`action=run`): Test a strategy on a specific date range for a single instrument.
 - **Full Range** (`action=full_range`): Test a strategy on all available data for multiple instruments. Required for marketplace publishing.
 
-Backtest requests remain backward compatible with the original crypto fields:
-`coin` and `coins` still mean Binance-style crypto symbols such as `BTC`.
-For non-crypto datasets, send instrument metadata alongside the legacy field:
-`symbol` (for example `AAPL`, `EURUSD`, `GOLD`), `asset_class`
-(`crypto`, `stock`, `etf`, `forex`, `index`, `commodity`), `provider`,
-`market`, and optionally `exchange`. The API selects available candle data
-using the supplied instrument and timeframe. Supported legacy crypto requests
-remain compatible with the current request format.
-Yahoo-backed non-crypto datasets currently use simple app symbols and daily
-data: `us_stocks` (`AAPL`, `NVDA`, `TSLA`, `MSFT`, `AMZN`, `META`), `etfs`
-(`SPY`, `QQQ`), `forex` (`EURUSD`, `GBPUSD`, `USDJPY`), and `commodities`
-(`GOLD`, `SILVER`, `OIL`). Provider-specific symbols such as `GC=F` are kept
-resolved server-side and never appear in the symbols this API accepts or returns.
+Use `symbol` for one instrument (for example `BTCUSDT` or `EURUSD`) and
+`symbols` for a multi-instrument request (for example `["BTCUSDT",
+"ETHUSDT"]`). The instrument catalog resolves each symbol to its available
+market data automatically. The resolved asset class, data source, market, and
+venue are returned as informational `instrument` metadata; clients do not need
+to choose or send a provider or exchange. If a symbol is ambiguous in the
+catalog, `asset_class` and `market` can be supplied to identify the intended
+dataset. Send either `symbol` or `symbols` in a request, never both.
+Legacy `coin` and `coins` request fields remain accepted for existing clients,
+but new integrations should use only `symbol` or `symbols`. Some older response
+shapes still contain `coin`/`coins` for client compatibility; these are output
+labels, not alternate request parameters.
 
 **Execution model (spot/futures, leverage, side) is chosen here, at backtest
 time.** Strategies are direction-agnostic (see [Create Strategy](#create-strategy)),
@@ -1504,9 +1515,9 @@ strategy's stored values (spot + long by default). `market` here remains the
 **dataset** namespace (which candles to read), which is a separate concept from
 `market_type` (spot vs futures execution).
 
-**Credit charge:** Each distinct coin with usable data costs **0.5 Beyin
-credits**. A single-coin `run` costs 0.5 credits; `full_range` and `portfolio`
-cost 0.5 credits per coin that passes data/range validation. The full amount is
+**Credit charge:** Each distinct symbol with usable data costs **0.5 Beyin
+credits**. A single-symbol `run` costs 0.5 credits; `full_range` and `portfolio`
+cost 0.5 credits per symbol that passes data/range validation. The full amount is
 reserved before processing starts and is refunded if the job fails. The charge does
 not increase with candle count or the number of data windows. `estimate` reports the
 same amount that launch will reserve.
@@ -1523,25 +1534,23 @@ available 1-minute candle so price movement before the entry is not used.
 Missing 1-minute intervals are not synthesized; an incomplete target-timeframe
 bucket with a gap is not used as a valid candle.
 
-For multi-coin jobs, at most two coins per user are processed at once. Remaining
-coins wait in the job queue; poll `action=status` to show the active and queued
-coins and their per-coin progress.
+For multi-symbol jobs, at most two symbols per user are processed at once.
+Remaining symbols wait in the job queue; poll `action=status` to show active and
+queued symbols and per-symbol progress.
 
 ### Estimate Cost
 
 `POST /backtest?action=estimate`
 
-| Field | Type | Required |
-|-------|------|----------|
-| `strategy_name` | string | Yes |
-| `coins` | string[] | Yes |
-| `timeframe` | string | Yes |
-| `symbol` | string | No | Single-instrument estimate; legacy crypto callers can omit |
-| `asset_class` | string | No | Defaults to `crypto` |
-| `provider` | string | No | Defaults to `binance` |
-| `market` | string | No | Defaults to `spot` |
-| `exchange` | string | No | Optional venue label |
-| `max_hold_days` | integer | No | Defaults to `30`; affects the estimated data lookahead |
+| Field | Type | Required / default | Description |
+|-------|------|-------------------|-------------|
+| `strategy_name` | string | Yes | Strategy to test |
+| `symbol` | string | One of `symbol` or `symbols` | One instrument, e.g. `BTCUSDT` |
+| `symbols` | string[] | One of `symbol` or `symbols` | Multiple instruments from one data market; use for portfolio/full-range estimates |
+| `timeframe` | string | Yes | Strategy evaluation timeframe |
+| `asset_class` | string | Auto | Optional catalog disambiguation |
+| `market` | string | Auto | Optional dataset disambiguation |
+| `max_hold_days` | integer | `30` | Affects estimated data lookahead |
 
 **Response:**
 ```json
@@ -1557,32 +1566,32 @@ period.
 
 `POST /backtest?action=info`
 
-| Field | Type | Required |
-|-------|------|----------|
-| `strategy_name` | string | Yes |
-| `coin` | string | Yes* |
-| `symbol` | string | No | Required for non-crypto instruments when `coin` is only a display label |
-| `timeframe` | string | Yes |
-| `asset_class` / `provider` / `market` / `exchange` | string | No |
+| Field | Type | Required / default | Description |
+|-------|------|-------------------|-------------|
+| `strategy_name` | string | Yes | Strategy to inspect |
+| `symbol` | string | Yes | Instrument, e.g. `BTCUSDT` or `EURUSD` |
+| `timeframe` | string | Yes | Requested timeframe |
+| `asset_class` | string | Auto | Optional catalog disambiguation |
+| `market` | string | Auto | Optional dataset disambiguation |
 
 **Response:**
 ```json
-{"action": "info", "coin": "BTC", "symbol": "BTCUSDT", "instrument": {"asset_class": "crypto", "provider": "binance", "market": "spot", "symbol": "BTCUSDT"}, "timeframe": "4h", "data_range": {"first_ts": 1514764800, "last_ts": 1784476800, "first_date": "2018-01-01", "last_date": "2026-07-19", "total_candles": 18730, "source_timeframe": "1m", "source_candles": 4495200}, "strategy": {"slug": "emacross", "candle_count": 32}, "cost_preview": {"credits_if_full": 0.5, "credits_per_coin": 0.5}, "current_credits": 7.35}
+{"action": "info", "coin": "BTC", "symbol": "BTCUSDT", "instrument": {"asset_class": "crypto", "provider": "binance", "market": "spot", "exchange": "BINANCE", "symbol": "BTCUSDT"}, "timeframe": "4h", "data_range": {"first_ts": 1514764800, "last_ts": 1784476800, "first_date": "2018-01-01", "last_date": "2026-07-19", "total_candles": 18730, "source_timeframe": "1m", "source_candles": 4495200}, "strategy": {"slug": "emacross", "candle_count": 32}, "cost_preview": {"credits_if_full": 0.5, "credits_per_coin": 0.5}, "current_credits": 7.35}
 ```
 
 ### List Available Timeframes
 
 `POST /backtest?action=list_timeframes`
 
-| Field | Type | Required |
-|-------|------|----------|
-| `coin` | string | Yes* |
-| `symbol` | string | No |
-| `asset_class` / `provider` / `market` / `exchange` | string | No |
+| Field | Type | Required / default | Description |
+|-------|------|-------------------|-------------|
+| `symbol` | string | Yes | Instrument, e.g. `BTCUSDT` or `EURUSD` |
+| `asset_class` | string | Auto | Optional catalog disambiguation |
+| `market` | string | Auto | Optional dataset disambiguation |
 
 **Response:**
 ```json
-{"action": "list_timeframes", "coin": "AAPL", "symbol": "AAPL", "instrument": {"asset_class": "stock", "provider": "yahoo", "market": "us_stocks", "symbol": "AAPL"}, "timeframes": [{"timeframe": "1d", "suffix": "1DAY", "s3_key": "<opaque data key>"}]}
+{"action": "list_timeframes", "coin": "EURUSD", "symbol": "EURUSD", "instrument": {"asset_class": "forex", "provider": "dukascopy", "market": "forex", "exchange": "FX", "symbol": "EURUSD"}, "timeframes": [{"timeframe": "1d", "suffix": "1DAY", "s3_key": "<opaque data key>"}]}
 ```
 
 Use the documented timeframe and suffix values. Treat any opaque key in this
@@ -1593,30 +1602,26 @@ directly.
 
 `POST /backtest?action=run`
 
-| Field | Type | Required | Default | Description |
-|-------|------|----------|---------|-------------|
-| `strategy_name` | string | Yes | | Strategy to test |
-| `coin` | string | Yes* | | Backward-compatible display symbol, e.g. `"BTC"` |
-| `symbol` | string | No | | Tradable/data symbol, e.g. `"BTCUSDT"`, `"AAPL"`, `"EURUSD"` |
-| `asset_class` | string | No | `crypto` | `crypto`, `stock`, `etf`, `forex`, `index`, `commodity` |
-| `provider` | string | No | `binance` | Data provider namespace |
-| `market` | string | No | `spot` | Dataset market namespace |
-| `exchange` | string | No | provider | Venue label |
-| `timeframe` | string | Yes | | e.g. `"4h"` |
-| `start_ts` | number | Yes | | Start unix timestamp |
-| `end_ts` | number | Yes | | End unix timestamp |
-| `market_type` | string | No | spot | `"spot"` or `"futures"`. Execution model for a direction-agnostic strategy, chosen here at backtest time. Spot forces 1x leverage and long-only. Falls back to a legacy strategy's stored market type when omitted. |
-| `leverage` | number | No | 3 (futures) | Futures leverage, 1–125. Ignored (forced to 1) when `market_type` is `"spot"`. |
-| `position_side` | string | No | long | `"long"` or `"short"`. Trade direction passed to the strategy's runtime `side` parameter. Forced to `"long"` for spot. Alias: `side`. |
-| `commission` | number | No | 0.2 | Commission % |
-| `position_pct` | number | No | 100 | Position size % |
-| `min_gap_candles` | number | No | 4 | Min candles between signals |
-| `max_hold_days` | integer | No | 30 | Maximum holding period in days (1–365). If TP, SL, or liquidation is not reached, close at the open of the first available 1-minute candle at or after the deadline. `max_wait_days` is accepted as a legacy request alias. |
-| `min_profit_pct` | number | No | 0.1 | Min profit target % |
-| `max_profit_pct` | number | No | 30 | Max profit target % |
-| `min_loss_pct` | number | No | 0.1 | Min stop loss % |
-| `max_loss_pct` | number | No | 50 | Max stop loss % |
-| `signal_filter_mode` | string | No | `"clamp"` | `"clamp"` (adjust to limits) or `"reject"` (skip signal) |
+| Field | Type | Required / default | Description |
+|-------|------|-------------------|-------------|
+| `strategy_name` | string | Required | Strategy to test |
+| `symbol` | string | Required | Tradable symbol from the configured instrument catalog, e.g. `BTCUSDT`, `EURUSD`, or `GOLD` |
+| `asset_class` | string | Auto | Catalog-resolved; optional when a symbol is unique |
+| `market` | string | Auto | Dataset resolved from the instrument catalog; optional disambiguation |
+| `timeframe` | string | Required | Strategy evaluation timeframe, e.g. `4h` |
+| `start_ts` / `end_ts` | number | Required | Start and end Unix timestamps |
+| `market_type` | string | `spot` | `spot` or `futures` execution model; spot is long-only and 1x |
+| `leverage` | number | `3` for futures | Futures leverage, 1–125; spot forces 1x |
+| `position_side` | string | `long` | `long` or `short`; spot forces `long`; alias `side` |
+| `commission` | number | `0.2` | Round-trip commission percentage |
+| `position_pct` | number | `100` | Percent of the current simulated balance committed to each single-run trade; it directly changes the equity curve and final balance |
+| `min_gap_candles` | integer | `4` | Minimum strategy-timeframe candle steps between accepted entries; signals inside the gap are skipped |
+| `max_hold_days` | integer | `30` | Maximum holding period, 1–365 days; `max_wait_days` remains a legacy alias |
+| `min_profit_pct` | number | `0.1` | Minimum TP return after the modeled commission and the default zero-spread assumption are deducted |
+| `max_profit_pct` | number | `100` | Maximum entry-to-TP price distance before leverage; leveraged account return may be higher, subject to liquidation; maximum accepted value is 500 |
+| `min_loss_pct` | number | `0.1` | Minimum percentage distance from entry price to the stop price |
+| `max_loss_pct` | number | `50` | Maximum percentage distance from entry price to the stop price |
+| `signal_filter_mode` | string | `clamp` | `clamp` skips TP below the net minimum, caps TP/SL distances above maximums, and moves SL distances below the minimum to the minimum. `reject` skips a signal whenever any configured min/max boundary is violated without changing its prices. |
 
 **Notes:**
 - New jobs evaluate strategy conditions on the forming requested-timeframe
@@ -1625,12 +1630,11 @@ directly.
   signal's display timestamp; `time` is the simulated entry timestamp.
 - `max_hold_days` defaults to 30. If neither TP, SL, nor liquidation closes a
   position before its deadline, it closes at the open of the first available 1-minute candle
-  whose timestamp is at or after that deadline. This is a maximum holding-time
-  exit, not a trailing exit. The old `max_wait_days` key remains accepted for
+  whose timestamp is at or after that deadline. The old `max_wait_days` key remains accepted for
   queued legacy requests.
-- **Spread** is automatically determined by crypto coin volume tier for legacy Binance crypto. Non-crypto datasets currently use the default low-volume fallback unless the backend is extended with asset-class-specific spread rules.
-- **signal_filter_mode = "clamp"** (default): If strategy TP exceeds `max_profit_pct`, it's clamped to max. If SL exceeds `max_loss_pct`, clamped to max. Signals below `min_profit_pct` are always skipped.
-- **signal_filter_mode = "reject"**: Signals that exceed any min/max limit are completely skipped.
+- **Spread assumption:** this request does not accept a spread estimate. The simulator uses `0%` because a symbol alone does not provide historical spread data. This is separate from `commission` and does not model live slippage.
+- **signal_filter_mode = `clamp`** (default): a TP whose net return after modeled costs is below `min_profit_pct` is skipped; TP distances above `max_profit_pct` and SL distances outside the configured min/max range are adjusted to the nearest allowed boundary.
+- **signal_filter_mode = `reject`:** a signal is skipped when its TP net return or SL entry distance falls outside the configured min/max range. The engine does not alter TP/SL prices in this mode.
 - **min/max profit/loss** values are passed to the strategy function as ratio parameters (`min_profit_ratio`, `max_profit_ratio`, `max_loss_ratio`, `min_loss_ratio`) for TP/SL price calculation.
 
 ### Exit scenarios in the completed result
@@ -1671,11 +1675,9 @@ with wick-based SL; `midpoint` and `wick` are analysis views.
 Previously saved results may retain the exit fields from the engine version
 that originally created them. These M1 rules apply to newly launched jobs.
 
-Each strategy signal may calculate a different TP/SL price; fixed percentages
-are only one valid condition. The generator emits a single fire-and-forget OCO
-pair (entry + concrete TP + concrete SL) and does not create trailing TP/SL,
-ATR trailing, DCA, grid, or scaling exits. `max_hold_days` is the only engine
-timeout and defaults to 30 days.
+Each strategy signal may calculate its own TP/SL price from the strategy's
+conditions. If neither level closes the position before `max_hold_days`, the
+backtest applies the maximum holding-time exit (30 days by default).
 
 **Response:**
 ```json
@@ -1686,23 +1688,25 @@ timeout and defaults to 30 days.
 
 `POST /backtest?action=full_range`
 
-| Field | Type | Required |
-|-------|------|----------|
-| `strategy_name` | string | Yes |
-| `coins` | string[] | Yes |
-| `timeframe` | string | Yes |
-| `asset_class` / `provider` / `market` / `exchange` | string | No |
-| `max_hold_days` | integer | No | Maximum holding period in days; default 30, range 1–365 |
+| Field | Type | Required / default | Description |
+|-------|------|-------------------|-------------|
+| `strategy_name` | string | Required | Strategy to test |
+| `symbol` or `symbols` | string / string[] | Required | One instrument with `symbol`, or multiple instruments with `symbols`; all must resolve to the same data market |
+| `timeframe` | string | Required | Strategy evaluation timeframe |
+| `asset_class` | string | Auto | Optional catalog disambiguation |
+| `market` | string | Auto | Optional dataset disambiguation |
+| `max_hold_days` | integer | `30` | Maximum holding period, 1–365 days |
 
 Each requested instrument is processed separately; longer histories may
 be split into multiple data windows. New jobs rebuild the selected timeframe
-from 1-minute source data. At most two coins are processed per user at once;
-additional coins wait in the queue and appear in the status response. This
+from 1-minute source data. At most two symbols are processed per user at once;
+additional symbols wait in the queue and appear in the status response. This
 action is required for `marketplace_publish` with `signal_mode=full`.
+All symbols in one multi-symbol request must resolve to the same data market.
 
 **Example body:**
 ```json
-{"strategy_name": "emacross", "coins": ["BTC", "ETH", "SOL"], "timeframe": "4h"}
+{"strategy_name": "emacross", "symbols": ["BTCUSDT", "ETHUSDT", "SOLUSDT"], "timeframe": "4h"}
 ```
 
 **Response:**
@@ -1714,32 +1718,33 @@ action is required for `marketplace_publish` with `signal_mode=full`.
 
 `POST /backtest?action=portfolio`
 
-Simulates all selected coins against **one shared balance**. The balance is
+Simulates all selected symbols against **one shared balance**. The balance is
 split into `divide` position slots: each position uses
 `current balance / divide`, at most `divide` positions are open at once, and
-at most one position per coin at a time. Signals that arrive with no free
-slot are skipped (and counted). Commission and per-coin spread are applied
-exactly as in single-coin runs.
+at most one position per symbol at a time. Signals that arrive with no free
+slot are skipped (and counted). Commission is applied as in single-symbol
+runs; spread defaults to 0% because historical spread data is unavailable.
 
 The portfolio uses the same 1-minute source and exit rules as `run`. Set
-`max_hold_days` to override the 30-day maximum holding period. At most two coins
-are processed at a time per user; any other selected coins are queued.
+`max_hold_days` to override the 30-day maximum holding period. At most two symbols
+are processed at a time per user; any other selected symbols are queued.
 
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `strategy_name` | string | Yes | |
-| `coins` | string[] | Yes | 2–50 legacy coin/instrument labels |
-| `asset_class` / `provider` / `market` / `exchange` | string | No | Shared dataset namespace for the selected instruments |
-| `timeframe` | string | Yes | |
-| `max_hold_days` | integer | No | Maximum holding period in days; default 30, range 1–365 |
-| `divide` | integer | No | 1–20; default = number of coins (capped at 20) |
-| `initial_balance` | number | No | Default 100 |
-| `commission` | number | No | Percent, default 0.2 |
-| `start_ts` / `end_ts` | integer | No | Unix seconds; omitted = full history. Each coin is clipped to its own available range |
+| Field | Type | Required / default | Description |
+|-------|------|-------------------|-------------|
+| `strategy_name` | string | Required | Strategy to test |
+| `symbols` | string[] | Required | 2–50 instruments from the same data market, e.g. `BTCUSDT` and `ETHUSDT` |
+| `asset_class` | string | Auto | Optional catalog disambiguation |
+| `market` | string | Auto | Optional shared dataset disambiguation |
+| `timeframe` | string | Required | Strategy evaluation timeframe |
+| `max_hold_days` | integer | `30` | Maximum holding period, 1–365 days |
+| `divide` | integer | Number of symbols | 1–20 position slots |
+| `initial_balance` | number | `100` | Shared starting balance |
+| `commission` | number | `0.2` | Round-trip commission percentage |
+| `start_ts` / `end_ts` | integer | Optional | Unix seconds; omitted means each symbol's full available history |
 
 **Example body:**
 ```json
-{"strategy_name": "emacross", "coins": ["BTC", "ETH", "SOL"], "timeframe": "4h", "divide": 3, "initial_balance": 100}
+{"strategy_name": "emacross", "symbols": ["BTCUSDT", "ETHUSDT", "SOLUSDT"], "timeframe": "4h", "divide": 3, "initial_balance": 100}
 ```
 
 **Response:**
@@ -1869,7 +1874,7 @@ and `trades` contains the default selected trade series. `signal_time` identifie
 the signal candle and `time` identifies the simulated entry time.
 
 Result merging is serialized per job. If a merge is still running or the
-expected worker chunks are not yet available, `action=result` may return HTTP
+required result data is still being prepared, `action=result` may return HTTP
 202 with a retryable message; poll `action=status` and request the result again.
 Incomplete cached payloads are not considered completed results.
 

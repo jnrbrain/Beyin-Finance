@@ -108,7 +108,8 @@ After that verification, add to `endpoints.md`:
    condition can be a fixed percentage or a dynamic candle-window rule; live
    evaluation may include the forming candle, while historical backtests
    exclude the evaluation candle;
-   the generator returns concrete per-signal OCO prices after evaluating it.
+   the generator returns concrete per-signal exit prices after evaluating the
+   entry and exit conditions.
 
    Strategy create/edit delivery hardening is live in the same API surface:
    clients preserve `Idempotency-Key` across retries; a `generation_id` binds
@@ -116,14 +117,6 @@ After that verification, add to `endpoints.md`:
    in-flight slot release are one transaction. The generation task
    uses Claude Sonnet 4.6 first and falls back to GPT-6.1 Sol through Amazon
    Bedrock only for Anthropic access/availability failures.
-
-   The advanced fields `exit_type` (`fixed`|`trailing`|`time`|`indicator`|
-   `scaling`), `trail_pct`, `time_exit_candles`, `exit_condition`, `entry_type`
-   (`single`|`dca`), `dca_steps` and `dca_step_pct` have lifecycle status
-   **`configuration_pending`**. The User API handler and the machine contract do
-   not currently accept them as production behavior. Move them into the live
-   developer reference only after handler/generator/client support, contract
-   tests, deployment and live verification all advance together.
 
 Sibling surfaces to update in the SAME release (tracked so nothing drifts):
 - Public website `Developers.tsx` backtest sample list (add walk_forward,
