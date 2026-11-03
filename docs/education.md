@@ -471,6 +471,21 @@ Metadata update. Requires `Idempotency-Key` and `If-Match`.
 
 **Errors:** 400, 401, 403, 409, 412, 429.
 
+### Delete a Product Draft
+
+`DELETE /education/v1/studio/products/{product_id}`
+
+Permanently deletes a product owned by the signed-in leader. The product must
+have no paid orders; otherwise the API returns `409 has_paid_orders` and the
+admin refund/takedown flow is required. The request requires
+`Idempotency-Key` and a leader session. It does not accept Developer API keys.
+
+| Path parameter | Type | Required | Description |
+|----------------|------|----------|-------------|
+| `product_id` | string | Yes | ID of the owned draft or product without paid orders |
+
+**Errors:** 401, 403, 404, 409, 429.
+
 ### Replace Draft Curriculum
 
 `PUT /education/v1/studio/products/{product_id}/curriculum`

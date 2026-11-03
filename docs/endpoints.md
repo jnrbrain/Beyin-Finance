@@ -162,13 +162,13 @@ Retry-After: 15               # Seconds until reset
 
 ### Plan Limits
 
-| Plan | Monthly | Annual (-50%) | Max Active Strategies | Max Coins/Strategy |
+| Plan | Monthly | Annual (-50%) | Max Active Strategies | Max Pairs/Strategy |
 |------|---------|---------------|----------------------|-------------------|
 | Free | – | – | 0 | 0 |
-| Starter | $10 | $60 | 1 | 5 |
-| Plus | $20 | $120 | 2 | 10 |
-| Pro | $50 | $300 | 5 | 25 |
-| Investor | $100 | $600 | 10 | 50 |
+| Starter | $10 | $60 | 1 | 1 |
+| Plus | $20 | $120 | 2 | 5 |
+| Pro | $50 | $300 | 5 | 10 |
+| Investor | $100 | $600 | 10 | 20 |
 
 ### Payment
 
@@ -1886,6 +1886,87 @@ and portfolio jobs. Each record reports `available_start_ts`,
 the stored one-minute partitions. A full-range backtest includes only data
 available in the source store; it does not synthesize history before the
 reported start timestamp.
+
+### Get All Trades or Signals
+
+`POST /backtest?action=result_trades`
+
+Reads a paginated trade or signal stream from an already completed job. It does
+not start another scan or charge credits.
+
+| Field | Type | Required / default | Description |
+|-------|------|-------------------|-------------|
+| `job_id` | string | Required | Completed backtest job ID |
+| `coin` | string | Optional | Coin filter for portfolio trade results; ignored when `stream` is `signals` |
+| `offset` | integer | `0` | Zero-based row offset |
+| `limit` | integer | `100` | Page size, clamped to 1–200 |
+| `stream` | string | `trades` | `trades` returns entered orders; `signals` returns entered and skipped signals |
+
+**Example body:**
+```json
+{"job_id": "1784936800_6a2326", "offset": 0, "limit": 100, "stream": "trades"}
+```
+
+**Response:**
+```json
+{"action": "result_trades", "job_id": "1784936800_6a2326", "offset": 0, "limit": 100, "total": 2450, "has_more": true, "trades": []}
+```
+
+### Recalculate Portfolio Divide
+
+`POST /backtest?action=resimulate_divide`
+
+Replays saved positions with a different portfolio allocation. It does not
+rerun workers or charge credits.
+
+| Field | Type | Required / default | Description |
+|-------|------|-------------------|-------------|
+| `job_id` | string | Required | Completed portfolio backtest job ID |
+| `divide` | integer | `1` | Concurrent portfolio slots, clamped to 1–20 |
+| `position_mode` | string | `compound` | `compound`, `fixed`, or `risk_pct` |
+| `fixed_amount` | number | `0` | Stake per trade when `position_mode` is `fixed` |
+| `risk_pct` | number | `0` | Balance percentage used when `position_mode` is `risk_pct` |
+| `initial_balance` | number | Saved job value | Optional positive starting-balance override |
+
+**Example body:**
+```json
+{"job_id": "1784936800_6a2326", "divide": 3, "position_mode": "compound", "initial_balance": 1000}
+```
+
+### Walk-Forward Analysis
+
+`POST /backtest?action=walk_forward`
+
+Splits the saved position history into chronological windows and replays those
+positions for a robustness comparison. It does not rerun the strategy scan or
+charge credits.
+
+| Field | Type | Required / default | Description |
+|-------|------|-------------------|-------------|
+| `job_id` | string | Required | Completed backtest job ID |
+| `wf_windows` | integer | `4` | Number of chronological windows, clamped to 2–20 |
+
+**Example body:**
+```json
+{"job_id": "1784936800_6a2326", "wf_windows": 4}
+```
+
+### Monte Carlo Analysis
+
+`POST /backtest?action=monte_carlo`
+
+Runs a deterministic block-bootstrap robustness analysis over saved positions.
+It does not rerun the strategy scan or charge credits.
+
+| Field | Type | Required / default | Description |
+|-------|------|-------------------|-------------|
+| `job_id` | string | Required | Completed backtest job ID |
+| `mc_runs` | integer | `1000` | Simulation count, clamped to 100–5000 |
+
+**Example body:**
+```json
+{"job_id": "1784936800_6a2326", "mc_runs": 1000}
+```
 
 ### Delete Backtest
 
