@@ -1416,9 +1416,11 @@ Requirements for public: Must have a successful `full_range` backtest. Only coin
 |-------|------|----------|
 | `strategy_name` | string | Yes |
 
+Each returned version includes `status`: `available` means its strategy code is stored, `generating` means the current version is still being created, and `not_found` means its strategy code is missing. Metadata is optional for older versions. The endpoint returns the full version history.
+
 **Response:**
 ```json
-{"ok": true, "data": {"strategy_name": "emacross", "current_version": 3, "versions": [{"version": 1, "created_at": 1784000000}, {"version": 2, "created_at": 1784500000}, {"version": 3, "created_at": 1784900000}]}}
+{"ok": true, "data": {"strategy_name": "emacross", "current_version": 3, "versions": [{"version": 1, "created_at": 1784000000, "status": "available"}, {"version": 2, "created_at": 1784500000, "status": "available"}, {"version": 3, "created_at": 1784900000, "status": "generating"}]}}
 ```
 
 ### Rollback Strategy
@@ -2733,13 +2735,25 @@ page. When `has_more` is false, `next_before_timestamp` is `null`.
 
 **Response:**
 ```json
-{"market_key": "BTCUSDT#1h", "item": {"market_key": "BTCUSDT#1h", "timestamp": 1784900000, "score": 72, "direction": "BULLISH"}, "count": 1}
+{"market_key":"BTCUSDT#1h","item":{"market_key":"BTCUSDT#1h","timestamp":1784900000,"score":72,"direction":"BULLISH"},"count":1,"live_candle":{"symbol":"BTCUSDT","market":"spot","interval":"1h","open_time":1784900000000,"open":"118000.00","high":"118250.00","low":"117950.00","close":"118180.00","volume":"12.34","close_time":1784903599999,"is_closed":false,"fetched_at":1784901200000,"age_seconds":0,"cache_status":"fresh"},"live_candle_status":"fresh"}
 ```
 
 The product fields are `score` (integer sentiment score) and `direction`
 (e.g. `"BULLISH"` / `"BEARISH"` / `"NEUTRAL"`). The `item` object may carry
 additional fields; **treat any field not documented here as unstable and
 ignore it** — do not depend on its presence, name, or value.
+
+For the default `BTCUSDT#1h` key, `live_candle` is a separate, in-progress BTC
+spot candle. Its OHLC values describe the current hour so far, and `close` is
+the latest sampled price. `open_time`, `close_time`, and `fetched_at` are Unix
+timestamps in milliseconds. `is_closed` becomes `true` after that candle has
+ended. `age_seconds` reports how old the shared sample is; clients should treat
+`cache_status` / `live_candle_status` values `fresh`, `stale`, and
+`unavailable` accordingly. The sample is shared and refreshed no more than once
+per 60-second window; a client may poll this endpoint to observe updates. When
+unavailable, `live_candle` is `null`. The persisted `item` and the history
+endpoint remain closed-candle sentiment records and are not rewritten by this
+live price data.
 
 ### Sentiment History
 
