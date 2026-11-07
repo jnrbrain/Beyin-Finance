@@ -83,8 +83,12 @@ class PublicReferenceScopeTests(unittest.TestCase):
         "info",
         "list_timeframes",
         "result",
+        "result_trades",
+        "resimulate_divide",
         "run",
         "status",
+        "walk_forward",
+        "monte_carlo",
     }
     PUBLIC_TRADING_DATA_OPERATIONS = {
         "changelog",

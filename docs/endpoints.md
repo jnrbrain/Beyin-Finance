@@ -190,30 +190,25 @@ Every purchase must be tied to your account by your **6-character Beyin ID**
 Pay by card through the Beyin Finance Shopier store:
 
 - **Store:** <https://www.shopier.com/beyinfinance>
-- Open the store, pick the listing for the plan and period you want, and
-  complete checkout. Each plan and billing period has its own listing.
+- Open the product link for your plan, choose its monthly or annual option, and
+  complete checkout. Each plan has one listing; its product selection sets the
+  billing period.
 - **Important:** during checkout, type your **6-character Beyin ID** into the
   order note field. This is how the payment is matched to your account. If you
   are unsure the note was saved, keep your order email so support can match it
   by e-mail as a fallback.
 
-#### Crypto — Binance Pay (currently suspended)
+#### Emergency payment channel — Binance Pay
 
-> **Notice — crypto payments are suspended.** In line with applicable SPK
-> requirements and our current compliance policy, crypto payment purchases are
-> currently suspended. **Do not send payment through Binance Pay.** This is an
-> operational notice for Beyin Finance and is not legal advice. See the
-> [SPK crypto-asset service provider notice](https://spk.gov.tr/duyurular/basin-duyurulari/2025/kripto-varlik-hizmet-saglayicilarina-iliskin-iki-tebli%C4%9F-yayimlandi)
-> for the applicable regulatory framework.
+Binance Pay is retained for emergency use if Shopier is unavailable. It is
+hidden from the normal plan checkout. When an owner enables the emergency
+checkout, it replaces Shopier in the website, mobile app, and Telegram plan
+screens until Shopier is restored. Existing Binance Pay receipts continue to be
+reconciled and credited while the checkout is hidden; this visibility switch
+does not pause or reset payment processing.
 
-> Binance Pay support is retained as a configured fallback if other payment
-> providers are unavailable. It is shown only when payment configuration and
-> the current compliance policy allow it. While the suspension notice above is
-> active, do not send a payment.
-
-For historical reference only (not a payment instruction):
-
-- **Binance Account ID:** `863 826 81`
+The Account ID is returned by the public platform config only while the
+emergency checkout is enabled; this reference does not publish the account ID.
 
 #### Mobile — in-app subscriptions
 
@@ -1619,7 +1614,7 @@ directly.
 | `position_pct` | number | `100` | Percent of the current simulated balance committed to each single-run trade; it directly changes the equity curve and final balance |
 | `min_gap_candles` | integer | `4` | Minimum strategy-timeframe candle steps between accepted entries; signals inside the gap are skipped |
 | `max_hold_days` | integer | `30` | Maximum holding period, 1–365 days; `max_wait_days` remains a legacy alias |
-| `min_profit_pct` | number | `0.1` | Minimum TP return after the modeled commission and the default zero-spread assumption are deducted |
+| `min_profit_pct` | number | `0.01` | Minimum net TP return after round-trip commission and spread are deducted. The gross TP distance is raised to at least `max(2 × commission, min_profit_pct + commission + spread)`; if that floor exceeds `max_profit_pct`, the signal is skipped. |
 | `max_profit_pct` | number | `100` | Maximum entry-to-TP price distance before leverage; leveraged account return may be higher, subject to liquidation; maximum accepted value is 500 |
 | `min_loss_pct` | number | `0.1` | Minimum percentage distance from entry price to the stop price |
 | `max_loss_pct` | number | `50` | Maximum percentage distance from entry price to the stop price |
@@ -1635,9 +1630,9 @@ directly.
   whose timestamp is at or after that deadline. The old `max_wait_days` key remains accepted for
   queued legacy requests.
 - **Spread assumption:** this request does not accept a spread estimate. The simulator uses `0%` because a symbol alone does not provide historical spread data. This is separate from `commission` and does not model live slippage.
-- **signal_filter_mode = `clamp`** (default): a TP whose net return after modeled costs is below `min_profit_pct` is skipped; TP distances above `max_profit_pct` and SL distances outside the configured min/max range are adjusted to the nearest allowed boundary.
-- **signal_filter_mode = `reject`:** a signal is skipped when its TP net return or SL entry distance falls outside the configured min/max range. The engine does not alter TP/SL prices in this mode.
-- **min/max profit/loss** values are passed to the strategy function as ratio parameters (`min_profit_ratio`, `max_profit_ratio`, `max_loss_ratio`, `min_loss_ratio`) for TP/SL price calculation.
+- **signal_filter_mode = `clamp`** (default): the engine raises a TP below the cost-aware gross floor, caps TP distances above `max_profit_pct`, and adjusts SL distances outside the configured min/max range. A signal is skipped if the required TP floor exceeds `max_profit_pct`.
+- **signal_filter_mode = `reject`:** the mandatory cost-aware TP floor is still applied. A signal is skipped if the floor exceeds `max_profit_pct`, if its TP is above the configured maximum, or if its SL entry distance falls outside the configured min/max range. Other TP/SL prices are not adjusted in this mode.
+- **min/max profit/loss** settings are passed to the strategy function as ratio parameters (`min_profit_ratio`, `max_profit_ratio`, `max_loss_ratio`, `min_loss_ratio`). `min_profit_ratio` is the gross TP floor computed from commission, spread, and the minimum net return; the other ratios express the configured TP/SL distance bounds.
 
 ### Exit scenarios in the completed result
 
@@ -1673,6 +1668,24 @@ the API does not repeat a full trade object for every TP reference. The
 selected line can be shown fully opaque while the other two TP references
 remain dashed and translucent. Marketplace publication requires `body` TP
 with wick-based SL; `midpoint` and `wick` are analysis views.
+
+New M1 results also let the client choose how to display stop fills after the
+backtest. This is an output-only selection, not a request parameter:
+`targeted_stop` exits at the configured SL price, while `slippage_included`
+(the default) uses the adverse extreme of that trade's actual exit 1-minute
+candle. For a long this is `min(SL, open, low)`; for a short it is
+`max(SL, open, high)`. No fixed slippage percentage is applied. Only `STOP`
+exits change; TP and maximum-holding-time exits retain their existing fill.
+The server recomputes all three TP comparison curves for both stop-fill models
+from the shared trade stream and stores only compact metrics/equity curves.
+The intended-stop curves are in
+`summary.exit_scenarios.targeted_stop_scenarios[body|midpoint|wick]`; the
+slippage-included curves are in the existing
+`summary.exit_scenarios.scenarios[body|midpoint|wick]`. The response lists
+`stop_fill_models` and `default_stop_fill_model`. Trade records expose
+`targeted_exit_price`, `slippage_loss_pct`, and `stop_fill_model` alongside the
+actual `exit_price`. When the engine adjusted the requested TP, trade records
+also include `requested_limit`; `limit` shows the applied target.
 
 Previously saved results may retain the exit fields from the engine version
 that originally created them. These M1 rules apply to newly launched jobs.
@@ -1739,7 +1752,7 @@ are processed at a time per user; any other selected symbols are queued.
 | `market` | string | Auto | Optional shared dataset disambiguation |
 | `timeframe` | string | Required | Strategy evaluation timeframe |
 | `max_hold_days` | integer | `30` | Maximum holding period, 1–365 days |
-| `divide` | integer | Number of symbols | 1–20 position slots |
+| `divide` | integer | Number of symbols | 1–min(20, unique selected symbols) position slots; higher values are clamped to this maximum |
 | `initial_balance` | number | `100` | Shared starting balance |
 | `commission` | number | `0.2` | Round-trip commission percentage |
 | `start_ts` / `end_ts` | integer | Optional | Unix seconds; omitted means each symbol's full available history |
@@ -1764,7 +1777,7 @@ coin), `trades` (coin-tagged, first 500, `trades_truncated` flag) and
 
 ```json
 "recommended_divide": {
-  "divide": 5, "final_balance": 214.2, "total_return_pct": 114.2,
+  "divide": 3, "final_balance": 214.2, "total_return_pct": 114.2,
   "max_drawdown_pct": 18.3, "max_concurrent_signals": 9,
   "candidates": [{"divide": 1, "total_return_pct": 80.1, "max_drawdown_pct": 31.0, "final_balance": 180.1, "total_trades": 42, "skipped_no_slot": 12}],
   "method": "return_dd_score"
@@ -1772,7 +1785,8 @@ coin), `trades` (coin-tagged, first 500, `trades_truncated` flag) and
 ```
 
 The recommendation simulates a fixed candidate set of divide values over the
-same signal timeline and picks the one maximizing
+same signal timeline. Candidate values never exceed the number of unique
+selected symbols. It picks the value maximizing
 `final_balance × (1 − max_drawdown/200)` — return lightly penalized by
 drawdown.
 
@@ -1835,7 +1849,13 @@ portfolio job (same shape as a single-coin result: `summary`, `trades`).
 ```
 
 Failed-job credit recovery is automatic and is not a customer endpoint. The
-status response contains only the customer-visible job state.
+status response contains only the customer-visible job state. A terminally
+failed job remains tagged `failed` in history; the response and history entry
+also expose `refunded` and `refunded_amount` so the credit return is visible
+without mislabeling the job as successful or as a separate `refunded` status.
+The full reserved job cost is returned at most once. If any expected data
+section cannot be completed or is permanently missing, the job is marked failed
+and refunded rather than combining an incomplete set into a backtest result.
 
 Status values: `queued`, `running`, `scanning`, `completed`, `failed`. The
 per-coin status map and active/queued coin lists let clients explain progress
@@ -1875,6 +1895,12 @@ trade records keep shared fields once; `all_positions` has the per-mode arrays
 and `trades` contains the default selected trade series. `signal_time` identifies
 the signal candle and `time` identifies the simulated entry time.
 
+If configured minimum/maximum profit or modeled-cost limits change the
+strategy's requested take-profit, `requested_limit` is included on that
+position/trade with the original strategy output; `limit` remains the effective
+target used by the simulator. The optional field is omitted when no adjustment
+was needed.
+
 Result merging is serialized per job. If a merge is still running or the
 required result data is still being prepared, `action=result` may return HTTP
 202 with a retryable message; poll `action=status` and request the result again.
@@ -1903,10 +1929,14 @@ not start another scan or charge credits.
 | `offset` | integer | `0` | Zero-based row offset |
 | `limit` | integer | `100` | Page size, clamped to 1–200 |
 | `stream` | string | `trades` | `trades` returns entered orders; `signals` returns entered and skipped signals |
+| `sort_by` | string | Omitted | Optional `profit_pct`; sorts the complete selected stream before pagination |
+| `sort_descending` | boolean | `true` | Used with `sort_by=profit_pct`. `false` orders from the largest loss to the largest gain. Skipped signals stay after entered trades. |
+
+Without `sort_by`, records retain their existing chronological order. Profit sorting is performed before applying `offset` and `limit`, so every page follows the same whole-result order rather than sorting only the rows already loaded by a client.
 
 **Example body:**
 ```json
-{"job_id": "1784936800_6a2326", "offset": 0, "limit": 100, "stream": "trades"}
+{"job_id": "1784936800_6a2326", "offset": 0, "limit": 100, "stream": "trades", "sort_by": "profit_pct", "sort_descending": false}
 ```
 
 **Response:**
@@ -1919,16 +1949,20 @@ not start another scan or charge credits.
 `POST /backtest?action=resimulate_divide`
 
 Replays saved positions with a different portfolio allocation. It does not
-rerun workers or charge credits.
+start a new backtest scan or charge credits. The maximum is the smaller of 20 and the
+number of unique symbols in the original portfolio; higher values are clamped.
 
 | Field | Type | Required / default | Description |
 |-------|------|-------------------|-------------|
 | `job_id` | string | Required | Completed portfolio backtest job ID |
-| `divide` | integer | `1` | Concurrent portfolio slots, clamped to 1–20 |
+| `divide` | integer | `1` | Concurrent portfolio slots, clamped to 1–min(20, original portfolio symbols) |
 | `position_mode` | string | `compound` | `compound`, `fixed`, or `risk_pct` |
-| `fixed_amount` | number | `0` | Stake per trade when `position_mode` is `fixed` |
-| `risk_pct` | number | `0` | Balance percentage used when `position_mode` is `risk_pct` |
+| `fixed_amount` | number | Required when `fixed` | Positive stake per position. A signal is skipped if available balance cannot cover it. |
+| `risk_pct` | number | Required when `risk_pct` (`0.1`–`100`) | Target stop-out loss as a percentage of available free balance. Position size accounts for stop distance, leverage, and modeled commission/spread; the model caps a position loss at its full stake. |
 | `initial_balance` | number | Saved job value | Optional positive starting-balance override |
+
+Risk sizing is a backtest estimate: a forced exit, a gap in source data, or an
+execution price beyond the modeled stop can produce a different realized loss.
 
 **Example body:**
 ```json
@@ -2788,22 +2822,33 @@ supported assets. Cache locally and ignore unknown fields.
   "GENERAL": "general",
   "banner_urls": ["https://..."],
   "supported_coins": ["BTC", "ETH", "SOL"],
-  "active_payments": ["shopier", "binance"],
+  "active_payments": ["shopier"],
   "payment_gateways": {
     "shopier": {"enabled": true, "base_url": "https://www.shopier.com/beyinfinance"},
-    "binance": {"enabled": true, "binance_account_id": "86382681"}
+    "binance": {"enabled": false}
   },
   "maintenance_mode": false,
   "config": {"maintenance_mode": false},
   "latest_app_version": "0.0.17",
   "min_supported_app_version": "0.0.1",
-  "changelog_url": "https://beyinfinance.com/changelog/"
+  "changelog_url": "https://beyinfinance.com/changelog/",
+  "payments": {
+    "currency": "USDT",
+    "investor": {
+      "annual": {"amount": 600.0, "credits": 600.0, "product_url": "https://www.shopier.com/beyinfinance/49804460"},
+      "monthly": {"amount": 100.0, "credits": 100.0, "product_url": "https://www.shopier.com/beyinfinance/49804460"}
+    }
+  }
 }
 ```
 
 The example is representative; the response may include additional platform
-configuration fields. The public payment configuration exposes the Binance
-Account ID used for manual transfers.
+configuration fields. Shopier product URLs are included per plan and billing
+period; for a given plan, both periods usually share one listing URL. In normal
+operation Binance Pay is omitted from `active_payments` and its Account ID is
+not returned. When emergency checkout is enabled, the response lists Binance
+Pay as the active method and includes the Account ID. This visibility setting
+does not stop incoming Binance Pay receipt reconciliation.
 
 ### Get Available Coins
 

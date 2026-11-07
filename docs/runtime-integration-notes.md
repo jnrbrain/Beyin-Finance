@@ -74,17 +74,19 @@ default of **50** and caps the page size at **100**. The DynamoDB query and the
 public reference therefore enforce the same limit. Do not raise the public
 documented cap above 100 without a versioned contract change.
 
-## Backtest & strategy engine expansion — deployed, authenticated verification pending
+## Backtest & strategy engine contract — source aligned, authenticated verification pending
 
 Recorded 2026-09-21, revalidated against the source contract on 2026-10-29, and
 the carrying strategy/backtest Lambda handlers were deployed on 2026-10-29.
 The deployment passed package, unit-test, lint and unauthenticated OPTIONS/401
 smoke checks, but an authenticated portfolio job was not run in that session
-because no valid JWT/test account was available. The capabilities below remain
-**out of the public live request tables and examples** until the authenticated
-portfolio → result → resimulation/paging → robustness chain is verified.
+because no valid JWT/test account was available. The source and public reference
+now list the available backtest actions, but that deployment evidence does not
+prove the complete authenticated portfolio → result → resimulation/paging →
+robustness chain works end to end. Treat that user workflow as **runtime
+verification pending**, not as an undocumented or unavailable API contract.
 
-After that verification, add to `endpoints.md`:
+The current source-aligned public contract includes:
 
 1. Backtest actions (read-only, post-process a completed `job_id`; not subject
    to `backtest_concurrency_limit`, no credit charge):
@@ -95,9 +97,15 @@ After that verification, add to `endpoints.md`:
      default 1000). Returns return/drawdown percentiles + probability_of_profit.
 2. Portfolio / `resimulate_divide` sizing fields: `position_mode`
    (`compound` default | `fixed` | `risk_pct`), `fixed_amount` (when fixed),
-   `risk_pct` (when risk_pct). Also surfaced in the portfolio result.
-   NOTE: the same change moves the portfolio `initial_balance` DEFAULT from 100
-   to 1000 — update the documented default when it ships.
+   `risk_pct` (when risk_pct, 0.1–100). Fixed stakes must be positive and are
+   skipped when free balance cannot cover them. Risk sizing targets the given
+   percentage of available free balance at the stop and includes the simulator's
+   leverage, commission and spread assumptions (with loss capped at the stake).
+   Invalid sizing values are rejected with HTTP 400. Also surfaced in the
+   portfolio result.
+   The portfolio launch action currently defaults `initial_balance` to `100`;
+   `resimulate_divide` uses the saved job value unless the caller supplies an
+   override. Keep these defaults distinct in the public reference.
    The result also exposes the raw-entry source, deterministic allocation
    policy, entered/skipped counts and financial invariant diagnostics.
    Portfolio signals are paged from the full entered+skipped union store.
@@ -118,9 +126,9 @@ After that verification, add to `endpoints.md`:
    uses Claude Sonnet 4.6 first and falls back to GPT-6.1 Sol through Amazon
    Bedrock only for Anthropic access/availability failures.
 
-Sibling surfaces to update in the SAME release (tracked so nothing drifts):
-- Public website `Developers.tsx` backtest sample list (add walk_forward,
-  monte_carlo; re-check the group `count`).
+Sibling surfaces already aligned with the source contract:
+- Public API reference and website API playground include `result_trades`,
+  `resimulate_divide`, `walk_forward`, and `monte_carlo`.
 - Website marketing/blog copy must not advertise advanced exit or DCA behavior
   as available while those fields are `configuration_pending`. Revisit the copy
   only in the same release that makes the contract live.
