@@ -373,13 +373,27 @@ identifier, amount and status fields.
 
 `POST /user?request_type=login_history`
 
-Returns recent login activity for the authenticated account, newest first. Use
-this endpoint to review account access activity.
+Returns the authenticated account's individual login attempts, newest first.
+Successful attempts, failed credential checks, and login rate-limit results are
+separate events. Each event includes the observed client IP when available, the
+platform, result, authentication method, and event time. Login events are kept
+for 180 days and then expire automatically.
+
+`device_group_id` is a stable SHA-256 digest of the app's install ID and lets the
+first-party app group attempts by device. Telegram login events use a SHA-256
+digest of the Telegram user ID and leave `ip_address` empty because the webhook
+source address belongs to Telegram, not the user. Raw device IDs and Telegram
+user IDs are not included in login-event records.
+
+While the login-event table is not configured, the temporary legacy path may
+return one `is_legacy_snapshot` record per IP-map entry. Its `result` is
+`unknown`; the old map cannot reproduce individual attempts or their outcomes.
+Those records have no device group ID.
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `page_size` | integer | No | Default 25, min 1, max 100 |
-| `last_evaluated_key` | string | No | Opaque cursor returned by the previous page |
+| `last_evaluated_key` | string | No | Opaque account-bound cursor returned by the previous page; send it back unchanged |
 
 ```json
 {
@@ -387,10 +401,14 @@ this endpoint to review account access activity.
   "data": {
     "logins": [
       {
-        "login_id": "login#abc...",
+        "login_id": "a4e912...",
+        "device_group_id": "sha256...",
         "ip_address": "192.0.2.10",
         "platform": "android",
-        "login_at": 1784936800
+        "login_at": 1784936800,
+        "result": "success",
+        "auth_method": "password",
+        "is_legacy_snapshot": false
       }
     ],
     "count": 1,
@@ -400,8 +418,10 @@ this endpoint to review account access activity.
 }
 ```
 
-`login_id` is the stable duplicate-removal key. Return the opaque cursor
-unchanged; malformed cursors and non-integer page sizes return HTTP 400.
+`login_id` is the stable event ID and duplicate-removal key. Group by
+`device_group_id` when present; when absent, treat the event's own `login_id` as
+its group key. Never group by IP. Return the opaque cursor unchanged; malformed,
+tampered, or cross-account cursors and non-integer page sizes return HTTP 400.
 
 ### Get Credits History
 
