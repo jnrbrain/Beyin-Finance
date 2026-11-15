@@ -376,14 +376,17 @@ identifier, amount and status fields.
 Returns the authenticated account's individual login attempts, newest first.
 Successful attempts, failed credential checks, and login rate-limit results are
 separate events. Each event includes the observed client IP when available, the
-platform, result, authentication method, and event time. Login events are kept
-for 180 days and then expire automatically.
+platform, device details when available, result, authentication method, and event
+time. Android device details contain the manufacturer/model and Android release;
+older records may have an empty value. Login events are kept for 180 days and
+then expire automatically.
 
 `device_group_id` is a stable SHA-256 digest of the app's install ID and lets the
 first-party app group attempts by device. Telegram login events use a SHA-256
 digest of the Telegram user ID and leave `ip_address` empty because the webhook
-source address belongs to Telegram, not the user. Raw device IDs and Telegram
-user IDs are not included in login-event records.
+source address belongs to Telegram, not the user. `device_details` is a bounded,
+human-readable model/platform label; raw device IDs and Telegram user IDs are not
+included in login-event records.
 
 While the login-event table is not configured, the temporary legacy path may
 return one `is_legacy_snapshot` record per IP-map entry. Its `result` is
@@ -405,6 +408,7 @@ Those records have no device group ID.
         "device_group_id": "sha256...",
         "ip_address": "192.0.2.10",
         "platform": "android",
+        "device_details": "Samsung SM-S928B · Android 15",
         "login_at": 1784936800,
         "result": "success",
         "auth_method": "password",
@@ -419,9 +423,11 @@ Those records have no device group ID.
 ```
 
 `login_id` is the stable event ID and duplicate-removal key. Group by
-`device_group_id` when present; when absent, treat the event's own `login_id` as
-its group key. Never group by IP. Return the opaque cursor unchanged; malformed,
-tampered, or cross-account cursors and non-integer page sizes return HTTP 400.
+`device_group_id` when present; when absent, use model/platform details only as a
+best-effort display grouping. A device view may group its individual attempts by
+IP, but IP must not be used to infer device identity. Return the opaque cursor
+unchanged; malformed, tampered, or cross-account cursors and non-integer page
+sizes return HTTP 400.
 
 ### Get Credits History
 
@@ -1910,10 +1916,14 @@ the `wick` stop model, `source_timeframe: "1m"`, and the fixed
 `same_candle_policy: "stop_first"`. Each of `scenarios.body`,
 `scenarios.midpoint`, and `scenarios.wick` contains its own summary metrics and
 equity curve (`final_balance`, `total_return_pct`, `max_drawdown_pct`,
-`profit_factor`, `win_rate`, trade counts, and `equity_curve`). Position and
-trade records keep shared fields once; `all_positions` has the per-mode arrays
-and `trades` contains the default selected trade series. `signal_time` identifies
-the signal candle and `time` identifies the simulated entry time.
+`profit_factor`, `win_rate`, signal/trade/win/loss counts, best/worst trade
+returns, average trade returns, and risk metrics (`sharpe_ratio`,
+`sortino_ratio`, `calmar_ratio`, `expectancy_pct`, `exposure_pct`,
+`avg_holding_hours`, and longest win/loss streaks). `equity_curve` is also
+specific to each scenario. Position and trade records keep shared fields once;
+`all_positions` has the per-mode arrays and `trades` contains the default
+selected trade series. `signal_time` identifies the signal candle and `time`
+identifies the simulated entry time.
 
 If configured minimum/maximum profit or modeled-cost limits change the
 strategy's requested take-profit, `requested_limit` is included on that
@@ -1951,12 +1961,26 @@ not start another scan or charge credits.
 | `stream` | string | `trades` | `trades` returns entered orders; `signals` returns entered and skipped signals |
 | `sort_by` | string | Omitted | Optional `profit_pct`; sorts the complete selected stream before pagination |
 | `sort_descending` | boolean | `true` | Used with `sort_by=profit_pct`. `false` orders from the largest loss to the largest gain. Skipped signals stay after entered trades. |
+| `tp_mode` | string | Omitted | Optional `body`, `midpoint`, or `wick`; recalculates returned rows from saved raw positions |
+| `stop_fill_model` | string | Omitted | Optional `targeted_stop` or `slippage_included`; applies to STOP exits when `tp_mode` is supplied |
+| `divide` | integer | Saved portfolio value | Optional portfolio replay override, clamped to 1–20 |
+| `position_mode` | string | Saved portfolio value | Optional portfolio sizing override: `compound`, `fixed`, or `risk_pct` |
+| `fixed_amount` | number | Saved portfolio value | Optional; required for `position_mode=fixed` |
+| `initial_balance` | number | Saved portfolio value | Optional positive starting-balance override |
+| `risk_pct` | number | Saved portfolio value | Optional; required for `position_mode=risk_pct` |
 
 Without `sort_by`, records retain their existing chronological order. Profit sorting is performed before applying `offset` and `limit`, so every page follows the same whole-result order rather than sorting only the rows already loaded by a client.
+
+When `tp_mode` or `stop_fill_model` is supplied, the API replays the job's saved raw positions and returns rows for that exit selection. `stream=trades` returns entered positions; `stream=signals` returns the selected entered and skipped signals. Portfolio requests can include the same sizing controls used by `resimulate_divide`. This does not start another scan or charge credits. A legacy job without saved scenario positions returns HTTP `409` instead of its unselected rows.
 
 **Example body:**
 ```json
 {"job_id": "1784936800_6a2326", "offset": 0, "limit": 100, "stream": "trades", "sort_by": "profit_pct", "sort_descending": false}
+```
+
+**Example selected exit body:**
+```json
+{"job_id": "1784936800_6a2326", "offset": 0, "limit": 100, "stream": "trades", "tp_mode": "wick", "stop_fill_model": "targeted_stop"}
 ```
 
 **Response:**
