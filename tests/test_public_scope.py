@@ -66,6 +66,8 @@ class PublicReferenceScopeTests(unittest.TestCase):
         "referral_redeem",
         "set_inviter",
         "signal_history",
+        "signal_entry_preview",
+        "signal_entry_submit",
         "strategy_delete",
         "strategy_detail",
         "strategy_edit",
@@ -162,6 +164,16 @@ class PublicReferenceScopeTests(unittest.TestCase):
         )
         self.assertIn("test1_ABC123", ENDPOINTS)
         self.assertIn("create their own local `test1` strategy", ENDPOINTS)
+
+    def test_backtest_lookback_uses_runtime_preflight_not_fixed_5000_cap(self):
+        strategy_reference = ENDPOINTS.split("## Strategy", 1)[1].split(
+            "## Backtest", 1
+        )[0]
+        self.assertIn("no fixed 5,000-target-candle lookback ceiling", strategy_reference)
+        self.assertIn('"backtest_runtime_limit"', strategy_reference)
+        self.assertIn('"RUNTIME_LIMIT"', strategy_reference)
+        self.assertIn("before credits", strategy_reference)
+        self.assertNotIn("5,000-candle backtest window", strategy_reference)
 
     def test_unimplemented_exit_fields_are_absent_from_public_strategy_docs(self):
         strategy_reference = ENDPOINTS.split("## Strategy", 1)[1].split(

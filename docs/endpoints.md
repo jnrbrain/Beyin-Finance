@@ -1247,9 +1247,11 @@ condition fields are not used for that mode.
 The live API currently supports one order-strategy model: a single entry with
 one take-profit condition and one stop-loss condition. Each condition can be a
 percentage-based rule or a dynamic rule derived from the candle window supplied
-by the runtime. Live strategy evaluation may include the current forming candle
-so signals do not arrive one candle late; historical backtests exclude the
-evaluation candle to prevent look-ahead.
+by the runtime. Strategies receive one chronological candle list in both live
+and M1-backtest evaluation: `candles[-1]` is the newest forming target-timeframe
+bar, and `candles[-2]` is the latest fully closed bar. A user-requested
+close-confirmed trigger is evaluated on `[-2]`, with the eligible entry price
+read from `[-1].close`; intrabar triggers may use `[-1]`.
 The generator evaluates dynamic rules again for every signal, then returns the
 concrete take-profit and stop-loss prices for that signal. The backtest uses
 the generated prices together with the entry condition and the holding-time
@@ -1284,16 +1286,21 @@ authenticated user already has a strategy with the same name, or if one
 have the maximum number of generations running. See the
 [Common `reason` codes](#common-reason-codes) table.
 
-Generation also applies a safety policy to the user-provided description,
-entry, take-profit, stop-loss and revision text. Text that attempts prompt
-injection, code execution, secret/system access, network/filesystem access, or
-is not a valid trading condition is rejected. The asynchronous generation
-attempt becomes `failed`, the full 1-credit charge is refunded once, and its
-generation service records HTTP `422` with the machine-readable shape
-`{"code":"strategy_input_rejected","reason_code":"unsafe_or_invalid_condition","retryable":false}`.
-No generated source is stored for a rejected attempt. Generated strategy source
-also has a zero-import policy; safe legacy imports remain readable only for
-backward compatibility and are not accepted in new or revised strategy code.
+Prompts may be written in any language. GPT interprets the trading intent and
+may internally replace a requested library or implementation with an equivalent
+safe operation over the supplied candles; implementation details are not shown
+as customer-facing errors when behavior is preserved. Generated Python still
+has a zero-import policy and passes the server-side AST sandbox before it is
+stored. Prompt-injection instructions are treated as untrusted text and are not
+executed. A request that depends on unavailable/future data, conflicts with
+itself, or cannot be represented by the fixed entry-time OCO model receives a
+capability reason plus a user-language explanation and suggested revision; the
+attempt becomes `failed` and its 1-credit charge is refunded once. These
+capability responses use HTTP `422` with
+`{"code":"strategy_capability_unsupported","reason_code":"LOOKAHEAD"}`
+(the `reason_code` varies by limitation). An explicit request for secret/system
+access, arbitrary code execution, network/filesystem access, or a security
+bypass is rejected when no safe faithful trading interpretation exists.
 
 ### Get Strategy Detail
 
@@ -1323,11 +1330,41 @@ credentials and private metadata are not exposed.
     "credits_per_signal": 0,
     "public_coins": [],
     "candle_count": 32,
+    "live_compatible": true,
+    "capability_status": "SUPPORTED_EXACT",
+    "capability_tags": [],
+    "capability_summary": "",
+    "capability_suggestion": "",
     "created_at": 1784000000,
     "updated_at": 1784900000
   }
 }
 ```
+
+`live_compatible` is false and `capability_tags` contains `LIVE_CANDLE_LIMIT`
+when the strategy requires more than the live Signal Engine's 1,000-candle
+window. Such a strategy can remain available for backtesting, but live signal
+scanning reports that tag and the required/maximum candle counts instead of
+silently truncating its input.
+Backtesting has no fixed 5,000-target-candle lookback ceiling. Before a launch,
+the API estimates the largest 1-minute source workload for the selected
+timeframe, strategy lookback, data range, and maximum holding period. Requests
+that exceed the safe execution budget return HTTP 422 with
+`code: "backtest_runtime_limit"` and `reason: "RUNTIME_LIMIT"` before credits
+are charged. The estimate is a resource forecast; strategy complexity and
+service load can affect actual execution time.
+
+`capability_status` is the primary support result. `capability_tags` may include
+`SUPPORTED_EXACT`, `SUPPORTED_APPROX`, `AMBIGUOUS`, `CONTRADICTORY`,
+`UNSUPPORTED_DATA`, `LOOKAHEAD`, `LIVE_CANDLE_LIMIT`, `RUNTIME_LIMIT`, or
+`UNSUPPORTED_EXIT`. `REQUIRES_USER_CONFIRMATION` is not a capability tag;
+exchange orders have their own explicit confirmation flow. A non-empty
+`capability_summary` explains a customer-visible limitation/approximation and
+`capability_suggestion` carries a revision suggestion that app, web, and Telegram
+can pass to the AI revise flow. Telegram uses the same owner-scoped `strategy_edit`
+operation as the app and web. The generator requires the model to include the
+capability marker; after three missing/invalid markers it fails safely as
+`AMBIGUOUS` rather than reporting unsupported code as exact.
 
 `timeframe` is present only if one was chosen; it is otherwise omitted because a
 strategy is timeframe-agnostic.
@@ -1548,9 +1585,12 @@ same amount that launch will reserve.
 **Candle and execution model for new jobs:** All requested timeframes are
 rebuilt from chronological 1-minute OHLCV data: open is the first source open,
 high/low are the source extremes, close is the latest source close, and volume
-is summed. On each available 1-minute update, the engine updates the forming
-requested-timeframe candle and evaluates the strategy; it does not wait for
-that larger candle to close. A position's
+is summed. On each available 1-minute close boundary, the engine updates the
+forming requested-timeframe candle and evaluates the strategy. When a target
+bar completes, it is exposed at `[-2]` and a new `[-1]` boundary-price stub is
+available immediately; close-confirmed strategies can therefore enter at that
+boundary without waiting for another 1-minute update. Intrabar strategies still
+evaluate the forming bar when their requested condition calls for it. A position's
 `signal_time` identifies the candle/update that produced the signal, while
 `time` records the simulated entry time. Exit checks begin with the next
 available 1-minute candle so price movement before the entry is not used.
@@ -1577,13 +1617,17 @@ queued symbols and per-symbol progress.
 
 **Response:**
 ```json
-{"action": "estimate", "timeframe": "4h", "total_candles": 8334, "source_timeframe": "1m", "source_candles": 2000000, "estimated_cost_credits": 0.5, "credits_per_coin": 0.5, "billable_coins": 1, "estimated_duration_seconds": 31, "estimated_duration_human": "31s", "chunks": 14, "max_active_coins_per_user": 2, "current_credits": 7.35, "can_afford": true}
+{"action": "estimate", "timeframe": "4h", "total_candles": 8334, "source_timeframe": "1m", "source_candles": 2000000, "estimated_cost_credits": 0.5, "credits_per_coin": 0.5, "billable_coins": 1, "estimated_duration_seconds": 48, "estimated_duration_human": "48s", "estimated_runtime_seconds_per_chunk": 48, "runtime_budget_seconds": 550, "safe_runtime_seconds": 440, "within_runtime_budget": true, "estimated_source_rows_per_chunk": 200880, "warmup_source_rows_per_chunk": 7680, "lookahead_source_rows_per_chunk": 43200, "chunks": 14, "max_active_coins_per_user": 2, "current_credits": 7.35, "can_afford": true}
 ```
 
 `total_candles` describes the requested timeframe; `source_candles` describes
 the 1-minute source data. Duration is an estimate and can change with current
 queue load, strategy complexity, warmup data, and the requested maximum holding
-period.
+period. `within_runtime_budget` previews whether the largest chunk is within the
+safe execution threshold; launches over that threshold return the 422 error
+described below. The estimate uses a 150,000-row source chunk target, converts
+the strategy lookback to 1-minute warmup rows, and includes maximum-hold
+lookahead rows.
 
 ### Get Instrument Backtest Info
 
@@ -1638,7 +1682,7 @@ directly.
 | `position_side` | string | `long` | `long` or `short`; spot forces `long`; alias `side` |
 | `commission` | number | `0.2` | Round-trip commission percentage |
 | `position_pct` | number | `100` | Percent of the current simulated balance committed to each single-run trade; it directly changes the equity curve and final balance |
-| `min_gap_candles` | integer | `4` | Minimum strategy-timeframe candle steps between accepted entries; signals inside the gap are skipped |
+| `min_gap_candles` | integer | `ceil(max(timeframe seconds, MIN_SIGNAL_INTERVAL_SECONDS) / timeframe seconds)`; the current live interval defaults to 3600 seconds | Minimum strategy-timeframe candle steps between accepted entries; signals inside the gap are skipped. Backtest callers may override it explicitly. |
 | `max_hold_days` | integer | `30` | Maximum holding period, 1–365 days; `max_wait_days` remains a legacy alias |
 | `min_profit_pct` | number | `0.01` | Minimum net TP return after round-trip commission and spread are deducted. The gross TP distance is raised to at least `max(2 × commission, min_profit_pct + commission + spread)`; if that floor exceeds `max_profit_pct`, the signal is skipped. |
 | `max_profit_pct` | number | `100` | Maximum entry-to-TP price distance before leverage; leveraged account return may be higher, subject to liquidation; maximum accepted value is 500 |
@@ -1647,10 +1691,12 @@ directly.
 | `signal_filter_mode` | string | `clamp` | `clamp` skips TP below the net minimum, caps TP/SL distances above maximums, and moves SL distances below the minimum to the minimum. `reject` skips a signal whenever any configured min/max boundary is violated without changing its prices. |
 
 **Notes:**
-- New jobs evaluate strategy conditions on the forming requested-timeframe
-  candle as 1-minute source candles arrive. The requested-timeframe candle does
-  not need to close before a signal can be produced. `signal_time` is the
-  signal's display timestamp; `time` is the simulated entry timestamp.
+- The strategy receives one candle list. `[-1]` is the newest forming target
+  bar and `[-2]` is the latest completed bar. Close-confirmed conditions use
+  `[-2]`; intrabar conditions may use `[-1]`. At a target-bar boundary, the
+  completed bar is available at `[-2]` and the new bar starts at `[-1]` with
+  only the price known at that boundary. `signal_time` is the signal's display
+  timestamp; `time` is the simulated entry timestamp.
 - `max_hold_days` defaults to 30. If neither TP, SL, nor liquidation closes a
   position before its deadline, it closes at the open of the first available 1-minute candle
   whose timestamp is at or after that deadline. The old `max_wait_days` key remains accepted for
@@ -1834,6 +1880,25 @@ When you exceed it, the launch is rejected with HTTP 429 and
   "current_running": 2,
   "max_concurrent": 3,
   "retry_after": 15
+}
+```
+
+Launches can also be rejected with HTTP 422 when the selected M1 workload is
+estimated to exceed the safe execution budget. This check happens before any
+credit charge:
+
+```json
+{
+  "error": "This backtest is estimated to exceed the safe execution time: about 613 seconds per chunk against a 440-second budget. Reduce the strategy lookback or holding period, or select a timeframe/date range with a smaller M1 workload.",
+  "code": "backtest_runtime_limit",
+  "reason": "RUNTIME_LIMIT",
+  "details": {
+    "timeframe": "1d",
+    "strategy_lookback_candles": 2000,
+    "estimated_runtime_seconds": 622,
+    "runtime_budget_seconds": 550,
+    "safe_runtime_seconds": 440
+  }
 }
 ```
 
@@ -2123,11 +2188,71 @@ non-integer page sizes return HTTP 400.
 
 **Response:**
 ```json
-{"ok": true, "data": {"signals": [{"position_key": "emacross#BTC#1784850000", "coin": "BTC", "strategy_name": "emacross", "owner": "MTHG7A", "side": "LONG", "signal_mode": "signal_orders", "entry_price": "67234.50", "limit_price": "69500.00", "stop_price": "65800.00", "source": "user", "created_at": 1784850000}], "count": 1, "last_evaluated_key": "base64...", "has_more": true}}
+{"ok": true, "data": {"signals": [{"position_key": "emacross#BTC#1784850000", "coin": "BTC", "strategy_name": "emacross", "owner": "MTHG7A", "side": "LONG", "signal_mode": "signal_orders", "entry_price": "67234.50", "limit_price": "69500.00", "stop_price": "65800.00", "source": "user", "created_at": 1784850000, "is_active": true, "entry_status": "", "last_entered_at": 0}], "count": 1, "last_evaluated_key": "base64...", "has_more": true}}
 ```
 
 Return the opaque cursor unchanged. Malformed cursors and non-integer page
 sizes return HTTP 400.
+
+### Preview a Manual Signal Entry
+
+`POST /user?request_type=signal_entry_preview`
+
+Requires a valid app JWT; API-key-only authentication is not accepted. This
+read-only preflight checks the owned active signal, Binance Spot market rules,
+the current Spot price, and available USDT balance. It does not submit an order
+and does not charge credits.
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `signal_position_key` | string | Yes | Active signal owned by the signed-in user |
+| `quote_amount_usdt` | number | Yes | USDT amount to spend on the Spot market buy |
+
+Only Spot `BUY`/`LONG` signals are supported. Futures and short signals cannot
+be submitted. The preview's estimated quantity uses the current price and may
+differ from the exchange fill. The balance check includes a 0.2% fee buffer.
+
+**Example body:**
+```json
+{"signal_position_key": "emacross#BTC#1784850000", "quote_amount_usdt": 50}
+```
+
+**Response:**
+```json
+{"ok": true, "data": {"signal_position_key": "emacross#BTC#1784850000", "symbol": "BTCUSDT", "market_type": "spot", "side": "BUY", "quote_amount_usdt": "50", "current_price": "67234.50", "estimated_quantity": "0.00074", "minimum_notional": "5", "available_usdt": "125.00", "required_usdt": "50.100", "estimated_fee_buffer_pct": "0.2", "order_type": "MARKET", "irreversible": true}}
+```
+
+### Submit a Manually Approved Signal Entry
+
+`POST /user?request_type=signal_entry_submit`
+
+The client must show the preview and obtain a separate explicit user
+confirmation before calling this endpoint. It submits one Spot `BUY MARKET`
+order for `quote_amount_usdt`. It does not create TP/SL/OCO exit orders; those
+are separate user actions. At most one entry is accepted per active signal
+across the app and Telegram.
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `signal_position_key` | string | Yes | Active signal owned by the signed-in user |
+| `quote_amount_usdt` | number | Yes | Revalidated USDT spend amount |
+| `idempotency_key` | string | Yes | 16–128 letters, numbers, `_` or `-`; preserve it across retries |
+
+**Example body:**
+```json
+{"signal_position_key": "emacross#BTC#1784850000", "quote_amount_usdt": 50, "idempotency_key": "entry_1784850100_5ab2f44c1bb34d2e"}
+```
+
+**Response (accepted):**
+```json
+{"ok": true, "data": {"status": "submitted", "symbol": "BTCUSDT", "market_type": "spot", "side": "BUY", "order_type": "MARKET", "quote_amount_usdt": "50", "executed_quantity": "0.00074", "average_price": "67250.00", "binance_order_id": "123456789", "client_order_id": "BFENT_..."}}
+```
+
+If Binance's response is ambiguous, the server checks by deterministic client
+order ID. If it still cannot resolve the result, it returns HTTP 202 with
+`status: "unknown_checking"`; check Binance order history before retrying. An
+identical completed request replays the saved result. A second entry request
+with a different key is rejected with HTTP 409 `signal_already_entered`.
 
 ### Signal History
 

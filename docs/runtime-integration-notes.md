@@ -112,19 +112,69 @@ The current source-aligned public contract includes:
 3. Strategy generation is only partially expanded in production:
    `direction_agnostic` (default true) is live, and market type, leverage, side
    and timeframe are selected later. The live order-strategy model remains a
-   single entry with condition-based `tp_condition` + `sl_condition`. Each
-   condition can be a fixed percentage or a dynamic candle-window rule; live
-   evaluation may include the forming candle, while historical backtests
-   exclude the evaluation candle;
-   the generator returns concrete per-signal exit prices after evaluating the
-   entry and exit conditions.
+   single entry with condition-based `tp_condition` + `sl_condition`. Both live
+   and M1-backtest evaluation use one chronological list: `[-1]` is the newest
+   forming target bar and `[-2]` the latest closed bar. At an exact target-bar
+   boundary, the M1 replayer moves the completed bar to `[-2]` and creates a
+   boundary-price stub at `[-1]`, so close-confirmed entries can be evaluated
+   at that boundary without lookahead. Intrabar conditions may still use `[-1]`.
+   The generator returns concrete per-signal exit prices after evaluating the
+   entry and exit conditions. A live lookback above 1,000 candles is marked
+   `LIVE_CANDLE_LIMIT` and remains backtest-only. Backtests do not have a fixed
+   target-candle ceiling: launch preflight converts the selected lookback to
+   1-minute warmup rows, adds each chunk's source rows and maximum-hold lookahead,
+   and returns `422 RUNTIME_LIMIT` before charging when the estimated execution
+   time exceeds its safe budget. This forecast is approximate; the execution
+   timeout remains the final guard.
+
+   Runtime parity details deployed to production on 2026-11-15: Binance
+   supplies the live target timeframe, including its forming `[-1]` bar. In S3 mode, the worker
+   reads closed 1-minute rows and aggregates the target timeframe's forming
+   `[-1]` bar from those rows; the latest completed target bar remains `[-2]`.
+   A missing 1-minute interval is reported as a data gap instead of shifting
+   indices. Open-position TP/SL tracking uses closed 1-minute bars from the
+   persisted per-signal cursor, at most 1,000 rows per invocation. A gap does not
+   advance that cursor or close the position. When one 1-minute OHLC candle
+   touches both TP and SL, the stop is resolved first; across different minutes,
+   the first level touched in time wins. The worker, backtest, generator and API
+   Lambda updates all reached `LastUpdateStatus=Successful`; the IAM alert-marker
+   permission update reached `UPDATE_COMPLETE`. The unauthenticated preview route
+   returned the expected HTTP 401 `session_expired`; no exchange order was sent.
+
+   Unless the caller sets a custom value, backtest `min_gap_candles` now derives
+   from the live cooldown: `ceil(max(timeframe seconds,
+   MIN_SIGNAL_INTERVAL_SECONDS) / timeframe seconds)`. The live interval is
+   currently 3,600 seconds by default; explicit backtest overrides remain
+   supported.
+
+   The app signal detail adds a read-only Spot-entry preview and a separate
+   confirmation step for a Spot `BUY MARKET` order. The entry does not submit
+   TP/SL/OCO exits. App and Telegram share a per-signal atomic claim so one signal
+   cannot be entered twice. Futures and short submissions remain blocked. An
+   unresolved Binance result is reported as unknown and must be checked in
+   Binance order history before retrying. The UserAPI and Telegram backend flows
+   are deployed. The mobile entry UI remains source-only until a mobile client
+   release; no authenticated order flow was exercised during deployment checks.
+
+   Strategy capability tags include exact/approximate support, ambiguity,
+   contradiction, data/lookahead/limit/runtime/exit failures. A safe equivalent
+   implementation rewrite is internal. App and web strategy detail screens can
+   open a generated suggestion in AI revision mode. Telegram now provides the
+   same revision action for saved strategies and a separately confirmed retry
+   using a failed generation's stored suggestion. It calls the same UserAPI
+   `strategy_edit`/`strategy_generate` logic and uses a short-lived scoped internal
+   assertion. The API and Telegram flows are deployed; app/web revision UI changes
+   remain source-only until their respective client release.
 
    Strategy create/edit delivery hardening is live in the same API surface:
    clients preserve `Idempotency-Key` across retries; a `generation_id` binds
    the generation task to one atomically charged registry attempt; failure refund and
-   in-flight slot release are one transaction. The generation task
-   uses Claude Sonnet 4.6 first and falls back to GPT-6.1 Sol through Amazon
-   Bedrock only for Anthropic access/availability failures.
+   in-flight slot release are one transaction. GPT-6.1 Sol through Amazon
+   Bedrock is the active primary provider. Claude is disabled and retained only
+   as commented fallback code. Generation prefers one GPT request and retries
+   invalid/provider-failed responses up to three total attempts. User prompts
+   and generated Python are logged for debugging. Prompts may be written in any
+   language; strategy intent must be understood in the original language.
 
 Sibling surfaces already aligned with the source contract:
 - Public API reference and website API playground include `result_trades`,
