@@ -460,7 +460,7 @@ credits.
 }
 ```
 
-**Transaction actions:** `deposit`, `backtest`, `credit_adjustment`, `strategy_generate`, `strategy_refund`, `marketplace_signal`, `telegram_link_reward`, `google_link_reward`, `binance_link_reward`
+**Transaction actions:** `deposit`, `backtest`, `credit_adjustment`, `strategy_generate`, `strategy_refund`, `ai_chat`, `marketplace_signal`, `telegram_link_reward`, `google_link_reward`, `binance_link_reward`
 
 Telegram registration and the first Telegram link to an existing account grant a
 one-time `0.5` credit reward. The reward is idempotent per Telegram account and
@@ -1549,9 +1549,16 @@ the documented API-key flow. A first-party request that declares JWT auth but
 omits the token receives `401 {"code": "jwt_required"}` rather than entering
 the legacy empty-credential branch.
 
-**Two backtest modes available:**
-- **Specified Range** (`action=run`): Test a strategy on a specific date range for a single instrument.
-- **Full Range** (`action=full_range`): Test a strategy on all available data for multiple instruments. Required for marketplace publishing.
+**Backtest selection:** First choose the execution market and strategy, then
+select one or more instruments. There is no user-facing single/portfolio mode.
+Choose **Full history** to scan all available data; choose **Specific dates** to
+scan a custom window. The server routes a custom multi-instrument run through
+the portfolio simulator internally. Full-history results are required for
+Marketplace publishing; custom-date results cannot be published.
+
+The API retains the `run`, `full_range`, and `portfolio` launch actions for
+existing integrations. First-party clients choose the action from the selected
+instrument count and date range.
 
 Use `symbol` for one instrument (for example `BTCUSDT` or `EURUSD`) and
 `symbols` for a multi-instrument request (for example `["BTCUSDT",
@@ -1566,18 +1573,29 @@ but new integrations should use only `symbol` or `symbols`. Some older response
 shapes still contain `coin`/`coins` for client compatibility; these are output
 labels, not alternate request parameters.
 
-**Execution model (spot/futures, leverage, side) is chosen here, at backtest
-time.** Strategies are direction-agnostic (see [Create Strategy](#create-strategy)),
-so the `market_type`, `leverage` and `position_side` fields on the launch
-actions (`run`, `full_range`, `portfolio`) decide how the same strategy is
-executed — spot or futures, long or short. Omitting them falls back to a legacy
-strategy's stored values (spot + long by default). `market` here remains the
-**dataset** namespace (which candles to read), which is a separate concept from
-`market_type` (spot vs futures execution).
+**Execution market and direction:** First-party clients choose Spot or Futures
+before instrument selection and send `market_type`/`position_side`. They start
+futures simulations at 1x; users can adjust leverage from the result screen by
+replaying the saved positions. Direct API callers may still supply `leverage` on
+launch for backwards compatibility. `market` remains the **dataset** namespace
+(which candles to read), separate from `market_type` (spot vs futures execution).
 
-**Credit charge:** Each distinct symbol with usable data costs **0.5 Beyin
-credits**. A single-symbol `run` costs 0.5 credits; `full_range` and `portfolio`
-cost 0.5 credits per symbol that passes data/range validation. The full amount is
+The backtest form does not ask for leverage: first-party clients launch at 1x.
+The completed result screen can replay the saved positions at a selected futures
+leverage without another strategy scan or credit charge. Telegram exposes the
+same adjustment with leverage buttons and a custom value; spot remains 1x.
+
+**Trading-cost profiles:** `commission_model=binance_spot` applies a fixed
+round-trip commission of **0.2%**; `binance_futures` applies **0.07%**. The
+server ignores a caller-supplied `commission` for either fixed profile.
+`commission_model=other` accepts a custom round-trip `commission` from 0% to
+0.3%, but results using that profile cannot be published in the Marketplace.
+Legacy requests that send a raw `commission` without a profile are treated as
+`other` for this Marketplace restriction.
+
+**Credit charge:** Each distinct symbol with usable data costs **1 Beyin
+credit**. A single-symbol `run` costs 1 credit; `full_range` and `portfolio`
+cost 1 credit per symbol that passes data/range validation. The full amount is
 reserved before processing starts and is refunded if the job fails. The charge does
 not increase with candle count or the number of data windows. `estimate` reports the
 same amount that launch will reserve.
@@ -1609,7 +1627,7 @@ queued symbols and per-symbol progress.
 |-------|------|-------------------|-------------|
 | `strategy_name` | string | Yes | Strategy to test |
 | `symbol` | string | One of `symbol` or `symbols` | One instrument, e.g. `BTCUSDT` |
-| `symbols` | string[] | One of `symbol` or `symbols` | Multiple instruments from one data market; use for portfolio/full-range estimates |
+| `symbols` | string[] | One of `symbol` or `symbols` | Multiple instruments from one data market; estimate charges one credit for each with usable data |
 | `timeframe` | string | Yes | Strategy evaluation timeframe |
 | `asset_class` | string | Auto | Optional catalog disambiguation |
 | `market` | string | Auto | Optional dataset disambiguation |
@@ -1617,7 +1635,7 @@ queued symbols and per-symbol progress.
 
 **Response:**
 ```json
-{"action": "estimate", "timeframe": "4h", "total_candles": 8334, "source_timeframe": "1m", "source_candles": 2000000, "estimated_cost_credits": 0.5, "credits_per_coin": 0.5, "billable_coins": 1, "estimated_duration_seconds": 48, "estimated_duration_human": "48s", "estimated_runtime_seconds_per_chunk": 48, "runtime_budget_seconds": 550, "safe_runtime_seconds": 440, "within_runtime_budget": true, "estimated_source_rows_per_chunk": 200880, "warmup_source_rows_per_chunk": 7680, "lookahead_source_rows_per_chunk": 43200, "chunks": 14, "max_active_coins_per_user": 2, "current_credits": 7.35, "can_afford": true}
+{"action": "estimate", "timeframe": "4h", "total_candles": 8334, "source_timeframe": "1m", "source_candles": 2000000, "estimated_cost_credits": 1.0, "credits_per_coin": 1.0, "billable_coins": 1, "commission_model": "binance_spot", "commission": 0.2, "estimated_duration_seconds": 48, "estimated_duration_human": "48s", "estimated_runtime_seconds_per_chunk": 48, "runtime_budget_seconds": 550, "safe_runtime_seconds": 440, "within_runtime_budget": true, "estimated_source_rows_per_chunk": 200880, "warmup_source_rows_per_chunk": 7680, "lookahead_source_rows_per_chunk": 43200, "chunks": 14, "max_active_coins_per_user": 2, "current_credits": 7.35, "can_afford": true}
 ```
 
 `total_candles` describes the requested timeframe; `source_candles` describes
@@ -1643,7 +1661,7 @@ lookahead rows.
 
 **Response:**
 ```json
-{"action": "info", "coin": "BTC", "symbol": "BTCUSDT", "instrument": {"asset_class": "crypto", "provider": "binance", "market": "spot", "exchange": "BINANCE", "symbol": "BTCUSDT"}, "timeframe": "4h", "data_range": {"first_ts": 1514764800, "last_ts": 1784476800, "first_date": "2018-01-01", "last_date": "2026-07-19", "total_candles": 18730, "source_timeframe": "1m", "source_candles": 4495200}, "strategy": {"slug": "emacross", "candle_count": 32}, "cost_preview": {"credits_if_full": 0.5, "credits_per_coin": 0.5}, "current_credits": 7.35}
+{"action": "info", "coin": "BTC", "symbol": "BTCUSDT", "instrument": {"asset_class": "crypto", "provider": "binance", "market": "spot", "exchange": "BINANCE", "symbol": "BTCUSDT"}, "timeframe": "4h", "data_range": {"first_ts": 1514764800, "last_ts": 1784476800, "first_date": "2018-01-01", "last_date": "2026-07-19", "total_candles": 18730, "source_timeframe": "1m", "source_candles": 4495200}, "strategy": {"slug": "emacross", "candle_count": 32}, "cost_preview": {"credits_if_full": 1.0, "credits_per_coin": 1.0}, "current_credits": 7.35}
 ```
 
 ### List Available Timeframes
@@ -1678,9 +1696,10 @@ directly.
 | `timeframe` | string | Required | Strategy evaluation timeframe, e.g. `4h` |
 | `start_ts` / `end_ts` | number | Required | Start and end Unix timestamps |
 | `market_type` | string | `spot` | `spot` or `futures` execution model; spot is long-only and 1x |
-| `leverage` | number | `3` for futures | Futures leverage, 1–125; spot forces 1x |
+| `leverage` | number | `1` in first-party clients | API clients may set 1–125 for futures. First-party clients adjust leverage on the result screen; spot forces 1x. |
 | `position_side` | string | `long` | `long` or `short`; spot forces `long`; alias `side` |
-| `commission` | number | `0.2` | Round-trip commission percentage |
+| `commission_model` | string | Derived from market | For crypto, the server applies 0.2% on Spot and 0.07% on Futures; it normalizes a mismatched Binance profile to the selected execution market. Non-crypto data uses `other`. `other` accepts the supplied 0–0.3 `commission` and is not Marketplace eligible. |
+| `commission` | number | `0.2` | Custom round-trip commission percentage used only with `commission_model=other`; fixed Binance profiles ignore this field. |
 | `position_pct` | number | `100` | Percent of the current simulated balance committed to each single-run trade; it directly changes the equity curve and final balance |
 | `min_gap_candles` | integer | `ceil(max(timeframe seconds, MIN_SIGNAL_INTERVAL_SECONDS) / timeframe seconds)`; the current live interval defaults to 3600 seconds | Minimum strategy-timeframe candle steps between accepted entries; signals inside the gap are skipped. Backtest callers may override it explicitly. |
 | `max_hold_days` | integer | `30` | Maximum holding period, 1–365 days; `max_wait_days` remains a legacy alias |
@@ -1701,7 +1720,6 @@ directly.
   position before its deadline, it closes at the open of the first available 1-minute candle
   whose timestamp is at or after that deadline. The old `max_wait_days` key remains accepted for
   queued legacy requests.
-- **Spread assumption:** this request does not accept a spread estimate. The simulator uses `0%` because a symbol alone does not provide historical spread data. This is separate from `commission` and does not model live slippage.
 - **signal_filter_mode = `clamp`** (default): the engine raises a TP below the cost-aware gross floor, caps TP distances above `max_profit_pct`, and adjusts SL distances outside the configured min/max range. A signal is skipped if the required TP floor exceeds `max_profit_pct`.
 - **signal_filter_mode = `reject`:** the mandatory cost-aware TP floor is still applied. A signal is skipped if the floor exceeds `max_profit_pct`, if its TP is above the configured maximum, or if its SL entry distance falls outside the configured min/max range. Other TP/SL prices are not adjusted in this mode.
 - **min/max profit/loss** settings are passed to the strategy function as ratio parameters (`min_profit_ratio`, `max_profit_ratio`, `max_loss_ratio`, `min_loss_ratio`). `min_profit_ratio` is the gross TP floor computed from commission, spread, and the minimum net return; the other ratios express the configured TP/SL distance bounds.
@@ -1768,7 +1786,7 @@ backtest applies the maximum holding-time exit (30 days by default).
 
 **Response:**
 ```json
-{"action": "run", "mode": "async_chunked", "job_id": "1784936800_6a2326", "cost_credits": 0.5, "remaining_credits": 6.85, "chunks": 1, "status": "dispatched", "poll_actions": {"status": "?action=status&job_id=1784936800_6a2326", "result": "?action=result&job_id=1784936800_6a2326"}}
+{"action": "run", "mode": "async_chunked", "job_id": "1784936800_6a2326", "cost_credits": 1.0, "remaining_credits": 6.35, "chunks": 1, "status": "dispatched", "poll_actions": {"status": "?action=status&job_id=1784936800_6a2326", "result": "?action=result&job_id=1784936800_6a2326"}}
 ```
 
 ### Full Range Backtest (for Marketplace)
@@ -1783,6 +1801,8 @@ backtest applies the maximum holding-time exit (30 days by default).
 | `asset_class` | string | Auto | Optional catalog disambiguation |
 | `market` | string | Auto | Optional dataset disambiguation |
 | `max_hold_days` | integer | `30` | Maximum holding period, 1–365 days |
+| `commission_model` | string | Derived from market | Crypto Spot uses fixed 0.2%, Crypto Futures uses fixed 0.07%; non-crypto data uses `other` (custom cost, not Marketplace eligible) |
+| `commission` | number | `0.2` | Used only for `commission_model=other`; fixed Binance profiles ignore it |
 
 Each requested instrument is processed separately; longer histories may
 be split into multiple data windows. New jobs rebuild the selected timeframe
@@ -1798,7 +1818,7 @@ All symbols in one multi-symbol request must resolve to the same data market.
 
 **Response:**
 ```json
-{"action": "full_range", "job_id": "1784936800_fr_abc", "coins": ["BTC", "ETH", "SOL"], "chunks": 3, "cost_credits": 1.5, "remaining_credits": 5.85, "status": "dispatched", "poll_actions": {"status": "?action=status&job_id=1784936800_fr_abc", "result": "?action=result&job_id=1784936800_fr_abc"}}
+{"action": "full_range", "job_id": "1784936800_fr_abc", "coins": ["BTC", "ETH", "SOL"], "chunks": 3, "cost_credits": 3.0, "remaining_credits": 4.35, "status": "dispatched", "poll_actions": {"status": "?action=status&job_id=1784936800_fr_abc", "result": "?action=result&job_id=1784936800_fr_abc"}}
 ```
 
 ### Launch Portfolio Backtest
@@ -1810,7 +1830,7 @@ split into `divide` position slots: each position uses
 `current balance / divide`, at most `divide` positions are open at once, and
 at most one position per symbol at a time. Signals that arrive with no free
 slot are skipped (and counted). Commission is applied as in single-symbol
-runs; spread defaults to 0% because historical spread data is unavailable.
+runs; the selected commission profile is applied.
 
 The portfolio uses the same 1-minute source and exit rules as `run`. Set
 `max_hold_days` to override the 30-day maximum holding period. At most two symbols
@@ -1826,7 +1846,8 @@ are processed at a time per user; any other selected symbols are queued.
 | `max_hold_days` | integer | `30` | Maximum holding period, 1–365 days |
 | `divide` | integer | Number of symbols | 1–min(20, unique selected symbols) position slots; higher values are clamped to this maximum |
 | `initial_balance` | number | `100` | Shared starting balance |
-| `commission` | number | `0.2` | Round-trip commission percentage |
+| `commission` | number | `0.2` | Round-trip commission percentage; fixed Binance profiles override caller input |
+| `commission_model` | string | Derived from market | Crypto Spot uses fixed 0.2%, Crypto Futures uses fixed 0.07%; non-crypto data uses `other` (custom 0–0.3%; not Marketplace eligible) |
 | `start_ts` / `end_ts` | integer | Optional | Unix seconds; omitted means each symbol's full available history |
 
 **Example body:**
@@ -1836,7 +1857,7 @@ are processed at a time per user; any other selected symbols are queued.
 
 **Response:**
 ```json
-{"action": "portfolio", "job_id": "pf_1784936800_ab12cd", "coins": ["BTC", "ETH", "SOL"], "divide": 3, "initial_balance": 100, "chunks": 3, "cost_credits": 1.5, "remaining_credits": 5.85, "status": "dispatched", "poll_actions": {"status": "?action=status&job_id=pf_1784936800_ab12cd", "result": "?action=result&job_id=pf_1784936800_ab12cd"}}
+{"action": "portfolio", "job_id": "pf_1784936800_ab12cd", "coins": ["BTC", "ETH", "SOL"], "divide": 3, "initial_balance": 100, "chunks": 3, "cost_credits": 3.0, "remaining_credits": 4.35, "status": "dispatched", "poll_actions": {"status": "?action=status&job_id=pf_1784936800_ab12cd", "result": "?action=result&job_id=pf_1784936800_ab12cd"}}
 ```
 
 The portfolio result (fetched with `action=result`) contains, in addition to
@@ -1972,7 +1993,7 @@ when a multi-coin job is waiting for earlier coins to finish.
     "best_trade_pct": 5.33, "worst_trade_pct": -10.45
   },
   "all_positions": [], "trades": [],
-  "total_positions": 15, "total_trades": 7, "cost_credits": 0.5
+  "total_positions": 15, "total_trades": 7, "cost_credits": 1.0
 }
 ```
 
@@ -2053,13 +2074,18 @@ When `tp_mode` or `stop_fill_model` is supplied, the API replays the job's saved
 {"action": "result_trades", "job_id": "1784936800_6a2326", "offset": 0, "limit": 100, "total": 2450, "has_more": true, "trades": []}
 ```
 
-### Recalculate Portfolio Divide
+### Recalculate Saved Backtest Positions
 
 `POST /backtest?action=resimulate_divide`
 
-Replays saved positions with a different portfolio allocation. It does not
-start a new backtest scan or charge credits. The maximum is the smaller of 20 and the
-number of unique symbols in the original portfolio; higher values are clamped.
+Replays saved positions with updated portfolio sizing and/or futures leverage.
+It does not start a new backtest scan or charge credits. For a single-coin or
+full-history result, `leverage` replays the same saved entries, fills and exits
+at the selected multiplier. For a portfolio result, leverage is combined with
+the chosen allocation settings. Spot remains at 1x. If portfolio-sizing fields
+are omitted, the saved job settings are retained. The divide maximum is the
+smaller of 20 and the number of unique symbols in the original portfolio;
+higher values are clamped.
 
 | Field | Type | Required / default | Description |
 |-------|------|-------------------|-------------|
@@ -2069,13 +2095,14 @@ number of unique symbols in the original portfolio; higher values are clamped.
 | `fixed_amount` | number | Required when `fixed` | Positive stake per position. A signal is skipped if available balance cannot cover it. |
 | `risk_pct` | number | Required when `risk_pct` (`0.1`–`100`) | Target stop-out loss as a percentage of available free balance. Position size accounts for stop distance, leverage, and modeled commission/spread; the model caps a position loss at its full stake. |
 | `initial_balance` | number | Saved job value | Optional positive starting-balance override |
+| `leverage` | integer | Saved job value | Optional futures replay leverage, 1–125; spot is forced to 1x |
 
 Risk sizing is a backtest estimate: a forced exit, a gap in source data, or an
 execution price beyond the modeled stop can produce a different realized loss.
 
 **Example body:**
 ```json
-{"job_id": "1784936800_6a2326", "divide": 3, "position_mode": "compound", "initial_balance": 1000}
+{"job_id": "1784936800_6a2326", "divide": 3, "position_mode": "compound", "initial_balance": 1000, "leverage": 5}
 ```
 
 ### Walk-Forward Analysis
@@ -2149,7 +2176,7 @@ The legacy `{strategy_name, backtest_key}` request remains backward compatible.
 
 **Response:**
 ```json
-{"ok": true, "data": {"backtests": [{"job_id": "...", "strategy_name": "emacross", "coin": "BTC", "timeframe": "4h", "cost_credits": 0.5, "created_at": 1784936800, "summary": {"total_trades": 7, "win_rate": 71.43, "total_return_pct": 5.46}}], "count": 1, "last_evaluated_key": "base64...", "has_more": true}}
+{"ok": true, "data": {"backtests": [{"job_id": "...", "strategy_name": "emacross", "coin": "BTC", "timeframe": "4h", "cost_credits": 1.0, "created_at": 1784936800, "summary": {"total_trades": 7, "win_rate": 71.43, "total_return_pct": 5.46}}], "count": 1, "last_evaluated_key": "base64...", "has_more": true}}
 ```
 
 Filtering is applied before pagination. The cursor represents the last
@@ -2466,7 +2493,7 @@ page. Malformed cursors and non-integer page sizes return HTTP 400.
 | `requested_coins` | string[] | Yes | Non-empty list of coins to list |
 
 :::{warning}
-Requirements for `signal_mode=full`: Must have a successful `full_range` backtest using the auditable `body` TP + `wick` SL model. Only coins with positive return, at least 10 trades, and a per-trade geometric gain strictly above 1.001 are listed; others are rejected (`negative_return`, `insufficient_trades`, `low_per_trade_gain`, or `no_backtest_data`). A new result with an incompatible exit model is rejected as `exit_model_not_marketplace_compatible`. `signal_mode=signal_only` requires no backtest and lists every requested coin.
+Requirements for `signal_mode=full`: Must have a successful full-history `full_range` backtest using Binance Spot (fixed 0.2%) or Binance Futures (fixed 0.07%) costs and the auditable `body` TP + `wick` SL model. Custom-date results and results using `commission_model=other` cannot be published. Only coins with positive return, at least 10 trades, and a per-trade geometric gain strictly above 1.001 are listed; others are rejected (`negative_return`, `insufficient_trades`, `low_per_trade_gain`, or `no_backtest_data`). A new result with an incompatible exit model is rejected as `exit_model_not_marketplace_compatible`. `signal_mode=signal_only` requires no backtest and lists every requested coin.
 :::
 
 Marketplace listing names are globally disambiguated by appending the creator's
@@ -3093,6 +3120,16 @@ request deducts `0.03` credits and returns `cevap` plus optional structured
 and the endpoint returns HTTP 503. Insufficient credits return HTTP 402 with
 `{"hata":"Yetersiz kredi","gerekli":0.03}`.
 
+Send a unique `Idempotency-Key` header for each new message. Reuse the same key
+only when retrying that exact message after a timeout or uncertain network
+result. The server keeps the result for seven days, so a retry returns the
+original answer or failure without charging a second time. Reusing a key with a
+different message returns HTTP 409 (`idempotency_key_conflict`). A duplicate
+that is still running returns HTTP 409 (`ai_chat_in_progress`) with a
+`Retry-After` header; retry the same message with the same key after that delay.
+When the server confirms a failure and refund, it returns
+`ai_chat_failed_refunded`; a later intentional attempt must use a new key.
+
 **Response:**
 ```json
 {"cevap": "...", "veri": {"coin": "BTCUSDT", "market_ratings": []}}
@@ -3603,12 +3640,13 @@ follow the rule above and only sign out on `"code": "session_expired"`.
 ### Backtest estimate modes
 
 `POST /backtest?action=estimate` accepts the common strategy, coin(s), and
-timeframe fields. Without timestamps it estimates a multi-coin `full_range`
-operation, including its success charge. When both `start_ts` and `end_ts` are
-provided it estimates a single-coin `run`, clips the timestamps to available
-data, and returns the range candle count and standard run cost. Supplying only
-one timestamp, an inverted range, or multiple coins in range mode returns 400.
-The response includes `mode`, either `full_range` or `range`.
+timeframe fields. Without timestamps it estimates a full-history `full_range`
+operation at one credit per billable coin. With timestamps it estimates a
+date-range `run`, or a portfolio simulation when the caller sets
+`mode=portfolio` for multiple instruments. Custom-date results are not eligible
+for Marketplace publishing. Supplying only one timestamp or an inverted range
+returns 400. The response includes the fixed/custom `commission_model` and
+effective `commission` used in the estimate.
 
 ---
 
