@@ -1556,6 +1556,16 @@ scan a custom window. The server routes a custom multi-instrument run through
 the portfolio simulator internally. Full-history results are required for
 Marketplace publishing; custom-date results cannot be published.
 
+For full-history multi-instrument jobs, `full_range` calculates a separate
+result for each instrument using its own simulated balance. For custom-date
+multi-instrument jobs, `portfolio` also produces individual instrument results,
+but its main summary is a shared-balance portfolio simulation: concurrent
+positions and slot limits can change that summary. It must not be described as
+an independent combined result. Use `coin_result` for a portfolio job's
+individual instrument result. For independent custom-date runs, submit `run`
+once per instrument; each accepted job is charged separately and normal
+concurrency limits apply.
+
 The API retains the `run`, `full_range`, and `portfolio` launch actions for
 existing integrations. First-party clients choose the action from the selected
 instrument count and date range.
@@ -1635,13 +1645,11 @@ queued symbols and per-symbol progress.
 
 **Response:**
 ```json
-{"action": "estimate", "timeframe": "4h", "total_candles": 8334, "source_timeframe": "1m", "source_candles": 2000000, "estimated_cost_credits": 1.0, "credits_per_coin": 1.0, "billable_coins": 1, "commission_model": "binance_spot", "commission": 0.2, "estimated_duration_seconds": 48, "estimated_duration_human": "48s", "estimated_runtime_seconds_per_chunk": 48, "runtime_budget_seconds": 550, "safe_runtime_seconds": 440, "within_runtime_budget": true, "estimated_source_rows_per_chunk": 200880, "warmup_source_rows_per_chunk": 7680, "lookahead_source_rows_per_chunk": 43200, "chunks": 14, "max_active_coins_per_user": 2, "current_credits": 7.35, "can_afford": true}
+{"action": "estimate", "timeframe": "4h", "total_candles": 8334, "source_timeframe": "1m", "source_candles": 2000000, "estimated_cost_credits": 1.0, "credits_per_coin": 1.0, "billable_coins": 1, "commission_model": "binance_spot", "commission": 0.2, "estimated_duration_seconds": 69, "estimated_duration_human": "1 min 9 sec", "estimated_runtime_seconds_per_chunk": 69, "admission_estimated_runtime_seconds_per_chunk": 48, "runtime_budget_seconds": 840, "safe_runtime_seconds": 672, "within_runtime_budget": true, "estimated_source_rows_per_chunk": 200880, "warmup_source_rows_per_chunk": 7680, "lookahead_source_rows_per_chunk": 43200, "chunks": 14, "max_active_coins_per_user": 2, "current_credits": 7.35, "can_afford": true}
 ```
 
 `total_candles` describes the requested timeframe; `source_candles` describes
-the 1-minute source data. Duration is an estimate and can change with current
-queue load, strategy complexity, warmup data, and the requested maximum holding
-period. `within_runtime_budget` previews whether the largest chunk is within the
+the 1-minute source data. Duration is a heuristic, not a maximum: it models per-coin chunk counts, up to two concurrent coin pipelines, and processing durations calibrated to observed elapsed times grouped by loaded M1 rows. Queue load, strategy complexity, warmup data, and the requested maximum holding period can change the actual duration. `coin_details` includes per-coin estimated chunk counts and processing times. `estimated_runtime_seconds_per_chunk` is the display estimate; `admission_estimated_runtime_seconds_per_chunk` is the separate runtime safety-gate estimate. `within_runtime_budget` previews whether the largest chunk is within the
 safe execution threshold; launches over that threshold return the 422 error
 described below. The estimate uses a 150,000-row source chunk target, converts
 the strategy lookback to 1-minute warmup rows, and includes maximum-hold
@@ -1910,15 +1918,15 @@ credit charge:
 
 ```json
 {
-  "error": "This backtest is estimated to exceed the safe execution time: about 613 seconds per chunk against a 440-second budget. Reduce the strategy lookback or holding period, or select a timeframe/date range with a smaller M1 workload.",
+  "error": "This backtest is estimated to exceed the safe execution time: about 700 seconds per chunk against a 672-second budget. Reduce the strategy lookback or holding period, or select a timeframe/date range with a smaller M1 workload.",
   "code": "backtest_runtime_limit",
   "reason": "RUNTIME_LIMIT",
   "details": {
     "timeframe": "1d",
     "strategy_lookback_candles": 2000,
-    "estimated_runtime_seconds": 622,
-    "runtime_budget_seconds": 550,
-    "safe_runtime_seconds": 440
+    "estimated_runtime_seconds": 700,
+    "runtime_budget_seconds": 840,
+    "safe_runtime_seconds": 672
   }
 }
 ```
