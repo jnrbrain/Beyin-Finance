@@ -2067,6 +2067,10 @@ Without `sort_by`, records retain their existing chronological order. Profit sor
 
 When `tp_mode` or `stop_fill_model` is supplied, the API replays the job's saved raw positions and returns rows for that exit selection. `stream=trades` returns entered positions; `stream=signals` returns the selected entered and skipped signals. Portfolio requests can include the same sizing controls used by `resimulate_divide`. This does not start another scan or charge credits. A legacy job without saved scenario positions returns HTTP `409` instead of its unselected rows.
 
+For a single-coin slot replay, include `single_coin_slots: true` and the same `divide` used for `resimulate_divide`, together with `tp_mode` and `stop_fill_model`. The page then reflects the selected slot count.
+
+For a selected portfolio replay, include the same `portfolio_selection`, `selected_coins`, `allow_same_coin`, `divide`, sizing and leverage values as the replay request, together with `tp_mode` and `stop_fill_model`. For an independent coin's scenario, use `independent_coin` with the coin symbol.
+
 **Example body:**
 ```json
 {"job_id": "1784936800_6a2326", "offset": 0, "limit": 100, "stream": "trades", "sort_by": "profit_pct", "sort_descending": false}
@@ -2095,10 +2099,19 @@ are omitted, the saved job settings are retained. The divide maximum is the
 smaller of 20 and the number of unique symbols in the original portfolio;
 higher values are clamped.
 
+For an eligible single-coin result, `result` includes `single_coin_max_slots`, based on the maximum historical overlap of closed signals, capped at 20. Send `single_coin_slots: true` and `divide` to replay those saved signals with that many concurrent positions in the same coin. Each entry uses available cash divided by the number of free slots. Values above the reported maximum are rejected. The replay is read-only and uses no credits; incomplete or unavailable raw history returns an error. Open, unclosed signals are not counted in the overlap maximum.
+
+`portfolio_selection: true` with a non-empty `selected_coins` array replays complete saved raw signals for those original job coins. `allow_same_coin` enables concurrent positions in one coin; `max_portfolio_slots` reports the current maximum, capped at 20. In compound sizing, each entry uses free balance divided by free slots. This preview does not change the saved job or its marketplace result and consumes no credits. Missing or incomplete raw signal history returns HTTP `409`.
+
 | Field | Type | Required / default | Description |
 |-------|------|-------------------|-------------|
 | `job_id` | string | Required | Completed portfolio backtest job ID |
 | `divide` | integer | `1` | Concurrent portfolio slots, clamped to 1–min(20, original portfolio symbols) |
+| `single_coin_slots` | boolean | `false` | Enable same-coin concurrent position replay; `divide` must not exceed `single_coin_max_slots`. |
+| `portfolio_selection` | boolean | `false` | Enable shared-balance replay for selected original coins. |
+| `selected_coins` | string array | Required for `portfolio_selection` | Non-empty list of coins from the original job. |
+| `allow_same_coin` | boolean | `false` | Permit concurrent positions in the same selected coin when slots and funds are available. |
+| `independent_coin` | string | Optional | Select an independently simulated coin for its saved scenario replay. |
 | `position_mode` | string | `compound` | `compound`, `fixed`, or `risk_pct` |
 | `fixed_amount` | number | Required when `fixed` | Positive stake per position. A signal is skipped if available balance cannot cover it. |
 | `risk_pct` | number | Required when `risk_pct` (`0.1`–`100`) | Target stop-out loss as a percentage of available free balance. Position size accounts for stop distance, leverage, and modeled commission/spread; the model caps a position loss at its full stake. |
