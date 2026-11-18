@@ -2555,12 +2555,12 @@ page. Malformed cursors and non-integer page sizes return HTTP 400.
 | `description` | string | No | Max 500 chars, no HTML |
 | `monthly_price_credits` | number | Yes | 0 - 10 — fixed MONTHLY subscription fee in credits; 0 is free (billing is monthly, prepaid) |
 | `signal_mode` | string | No | `"full"` (default) or `"signal_only"` |
-| `requested_coins` | string[] | Yes | Non-empty list of coins to list |
-| `backtest_job_id` | string | Required for `full` | Selected completed backtest job; server checks its owner, strategy, raw data and result |
+| `requested_coins` | string[] | Yes | Non-empty list of selected result coins to evaluate; the server lists only eligible profitable coins |
+| `backtest_job_id` | string | Required for `full` | Selected completed full-range backtest job; server checks its owner, strategy, range, raw data and result |
 | `backtest_saved_revision` | integer | No | Saved result revision; server rejects stale settings or changed source data |
 
 :::{warning}
-Requirements for `signal_mode=full`: Select a completed portfolio or single-asset backtest. The server verifies the result under the authenticated user job storage, checks strategy and raw-data integrity, and derives eligibility and listing metrics from that result. Client-supplied returns are ignored. Only coins with positive return, at least 10 trades, and per-trade geometric gain strictly above 1.001 are listed. `signal_mode=signal_only` requires no backtest and lists every requested coin.
+Requirements for `signal_mode=full`: Select a completed portfolio or single-asset result that proves full available history and has a positive aggregate return. The server verifies the result under the authenticated user's job storage, checks strategy and raw-data integrity, and derives eligibility and listing metrics from that result. Client-supplied returns are ignored. Only coins with positive return, at least 10 trades, and per-trade geometric gain strictly above 1.001 are listed; losing or otherwise ineligible coins are rejected. The mobile and web publishing forms select a verified result and derive the coin scope automatically. `signal_mode=signal_only` remains available to API clients, requires no backtest and accepts every requested coin.
 :::
 
 Marketplace listing names are globally disambiguated by appending the creator's
@@ -2578,7 +2578,7 @@ create their own local `test1` strategy.
 {"ok": true, "data": {"listing_id": "lst_abc123", "strategy_key": "emacross_ABC123", "strategy_name": "emacross_ABC123", "display_strategy_name": "emacross", "status": "active", "listed_coins": ["BTC", "ETH"], "rejected_coins": {"SOL": "negative_return", "DOGE": "insufficient_trades"}, "monthly_price_credits": 2, "billing_period": "monthly", "signal_mode": "full", "backtest_summary": {"BTC": {"pnl_pct": 12.5, "win_rate": 68.0, "trades": 42}}}}
 ```
 
-**Errors:** 400 invalid strategy, price or coin list; 403 wrong strategy/user; 409 incomplete, missing, unsupported, stale or unverifiable backtest; 400 no eligible coins (`"code": "no_eligible_coins"`); 404 strategy not found.
+**Errors:** 400 invalid strategy, price or coin list; 403 wrong strategy/user; 409 incomplete, missing, unsupported, non-full-range, non-profitable, stale or unverifiable backtest; 400 no eligible coins (`"code": "no_eligible_coins"`); 404 strategy not found.
 
 ### Update Listing
 
