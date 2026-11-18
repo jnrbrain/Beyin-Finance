@@ -182,3 +182,15 @@ Sibling surfaces already aligned with the source contract:
 - Website marketing/blog copy must not advertise advanced exit or DCA behavior
   as available while those fields are `configuration_pending`. Revisit the copy
   only in the same release that makes the contract live.
+
+## Backtest saved views — verified 2026-11-18
+
+Production BacktestOrchestrator and UserAPI were deployed on 2026-11-18.
+An isolated GPTEST fixture verified conditional save/retry/conflict, reopened
+portfolio and independent coin summaries, order pages, strict positive-profit
+eligibility and protection against invalidating an existing saved portfolio.
+The original result bytes and credit balance remained unchanged. The fixture
+was removed after the checks. Marketplace publishing reads the original
+`<strategy>_full_range.json` artifact; saving a view does not rewrite it.
+
+Conditional snapshot writes follow the [AWS S3 conditional-write contract](https://docs.aws.amazon.com/AmazonS3/latest/userguide/conditional-writes.html).

@@ -2109,7 +2109,7 @@ For an eligible single-coin result, `result` includes `single_coin_max_slots`, b
 | `divide` | integer | `1` | Concurrent portfolio slots, clamped to 1–min(20, original portfolio symbols) |
 | `single_coin_slots` | boolean | `false` | Enable same-coin concurrent position replay; `divide` must not exceed `single_coin_max_slots`. |
 | `portfolio_selection` | boolean | `false` | Enable shared-balance replay for selected original coins. |
-| `selected_coins` | string array | Required for `portfolio_selection` | Non-empty list of coins from the original job. |
+| `selected_coins` | string array | Required for `portfolio_selection` | Non-empty list of original coins with a strictly positive effective independent return. |
 | `allow_same_coin` | boolean | `false` | Permit concurrent positions in the same selected coin when slots and funds are available. |
 | `independent_coin` | string | Optional | Select an independently simulated coin for its saved scenario replay. |
 | `position_mode` | string | `compound` | `compound`, `fixed`, or `risk_pct` |
@@ -2125,6 +2125,50 @@ execution price beyond the modeled stop can produce a different realized loss.
 ```json
 {"job_id": "1784936800_6a2326", "divide": 3, "position_mode": "compound", "initial_balance": 1000, "leverage": 5}
 ```
+
+### Save portfolio and independent results
+
+`POST /backtest?action=resimulate_divide` also accepts `save: true` and
+`expected_revision` (the integer `saved_revision` returned by `result` or
+`coin_result`, initially `0`). Omitting `save` remains a read-only preview.
+
+Use exactly one scope:
+
+- `portfolio_selection: true`: saves selected coins, divide, same-coin policy,
+  initial balance, sizing mode/amount/risk and leverage as the main result.
+- `single_coin_slots: true` without `independent_coin`: saves the single-coin
+  job's slots and leverage as its main result.
+- `single_coin_slots: true` with `independent_coin`: saves only that coin's
+  independent slots and leverage, without replacing the shared portfolio.
+
+The server recalculates from complete raw signals; client-supplied metrics
+are ignored. No candle scan starts and no credits are charged. A successful
+write returns `saved: true`, `saved_settings`, and the new `saved_revision`.
+`result` and `coin_result` restore the appropriate saved snapshot. The history
+endpoint shows the saved main summary. `result_trades` without explicit replay
+settings uses the saved main settings (or the saved coin settings when a coin
+is requested); explicit settings still select a preview.
+
+Only coins with a finite independent return strictly greater than zero may
+enter a shared portfolio. A saved, server-verified independent result takes
+precedence over the original independent result. Zero, negative, unknown and
+failed results are rejected by the API with HTTP `400` as well as disabled by
+the clients. If saving a coin would make an existing saved portfolio member
+non-profitable, HTTP `409` asks the caller to first save a portfolio excluding
+that coin; neither record changes on that failed request.
+
+Writes use one atomic conditional snapshot per job. A different stale revision
+or a concurrent write returns HTTP `409`; reopen before retrying. Retrying an
+identical committed request is idempotent, including after a lost response.
+Missing/incomplete raw history or changed source versions fail closed, and a
+storage failure never reports a successful save. Only completed jobs can be
+saved. Old jobs without complete scenario signals cannot be saved.
+
+**Marketplace:** saved views do not alter the original job, raw signals,
+manifest, original history index, or the strategy full-range artifact used by
+Marketplace publishing. They update the user's result view and displayed
+history return only. Marketplace eligibility, listing metrics and published
+results continue to use the original full-range backtest.
 
 ### Walk-Forward Analysis
 
@@ -2509,12 +2553,14 @@ page. Malformed cursors and non-integer page sizes return HTTP 400.
 |-------|------|----------|-------------|
 | `strategy_key` | string | Yes | Lowercase letters and numbers only |
 | `description` | string | No | Max 500 chars, no HTML |
-| `monthly_price_credits` | number | Yes | 0.1 - 10 — fixed MONTHLY subscription fee in credits (billing is always monthly, prepaid) |
+| `monthly_price_credits` | number | Yes | 0 - 10 — fixed MONTHLY subscription fee in credits; 0 is free (billing is monthly, prepaid) |
 | `signal_mode` | string | No | `"full"` (default) or `"signal_only"` |
 | `requested_coins` | string[] | Yes | Non-empty list of coins to list |
+| `backtest_job_id` | string | Required for `full` | Selected completed backtest job; server checks its owner, strategy, raw data and result |
+| `backtest_saved_revision` | integer | No | Saved result revision; server rejects stale settings or changed source data |
 
 :::{warning}
-Requirements for `signal_mode=full`: Must have a successful full-history `full_range` backtest using Binance Spot (fixed 0.2%) or Binance Futures (fixed 0.07%) costs and the auditable `body` TP + `wick` SL model. Custom-date results and results using `commission_model=other` cannot be published. Only coins with positive return, at least 10 trades, and a per-trade geometric gain strictly above 1.001 are listed; others are rejected (`negative_return`, `insufficient_trades`, `low_per_trade_gain`, or `no_backtest_data`). A new result with an incompatible exit model is rejected as `exit_model_not_marketplace_compatible`. `signal_mode=signal_only` requires no backtest and lists every requested coin.
+Requirements for `signal_mode=full`: Select a completed portfolio or single-asset backtest. The server verifies the result under the authenticated user job storage, checks strategy and raw-data integrity, and derives eligibility and listing metrics from that result. Client-supplied returns are ignored. Only coins with positive return, at least 10 trades, and per-trade geometric gain strictly above 1.001 are listed. `signal_mode=signal_only` requires no backtest and lists every requested coin.
 :::
 
 Marketplace listing names are globally disambiguated by appending the creator's
@@ -2524,7 +2570,7 @@ create their own local `test1` strategy.
 
 **Example body:**
 ```json
-{"strategy_key": "emacross", "description": "EMA crossover for BTC", "monthly_price_credits": 2, "signal_mode": "full", "requested_coins": ["BTC", "ETH", "SOL"]}
+{"strategy_key": "emacross", "description": "EMA crossover for BTC", "monthly_price_credits": 0, "signal_mode": "full", "backtest_job_id": "job-123", "backtest_saved_revision": 2, "requested_coins": ["BTC", "ETH", "SOL"]}
 ```
 
 **Response:**
@@ -2532,7 +2578,7 @@ create their own local `test1` strategy.
 {"ok": true, "data": {"listing_id": "lst_abc123", "strategy_key": "emacross_ABC123", "strategy_name": "emacross_ABC123", "display_strategy_name": "emacross", "status": "active", "listed_coins": ["BTC", "ETH"], "rejected_coins": {"SOL": "negative_return", "DOGE": "insufficient_trades"}, "monthly_price_credits": 2, "billing_period": "monthly", "signal_mode": "full", "backtest_summary": {"BTC": {"pnl_pct": 12.5, "win_rate": 68.0, "trades": 42}}}}
 ```
 
-**Errors:** 400 invalid `strategy_key`, 400 invalid `signal_mode`, 400 `monthly_price_credits` out of range (0.1-10), 400 empty `requested_coins`, 400 HTML in description, 400 no `full_range` backtest found (full mode), 400 no eligible coins (`"code": "no_eligible_coins"`), 404 strategy not found.
+**Errors:** 400 invalid strategy, price or coin list; 403 wrong strategy/user; 409 incomplete, missing, unsupported, stale or unverifiable backtest; 400 no eligible coins (`"code": "no_eligible_coins"`); 404 strategy not found.
 
 ### Update Listing
 
@@ -2541,7 +2587,7 @@ create their own local `test1` strategy.
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `listing_id` | string | Yes | |
-| `monthly_price_credits` | number | No | 0.1 - 10 — new monthly subscription fee |
+| `monthly_price_credits` | number | No | 0 - 10 — new monthly subscription fee; 0 is free |
 | `description` | string | No | Max 500 chars, no HTML |
 
 :::{danger}
