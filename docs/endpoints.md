@@ -38,7 +38,7 @@ X-API-Secret: bf_sec_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 Content-Type: application/json
 ```
 
-Generate API keys from the Telegram bot, web dashboard, or mobile app.
+Generate API keys from the web dashboard or mobile app.
 
 A missing or invalid credential returns HTTP 401 on authenticated routes.
 `/user` and `/backtest` operations require a tracked caller identity; selected
@@ -94,11 +94,18 @@ credential to replace.
 
 ### Telegram Bot Scope
 
-The Telegram bot is an account handoff and notification channel. It can create
-or link a Beyin Finance account, show account and plan information, deliver
-signals, manage signal automation preferences, and guide manually confirmed
-Binance order actions. It is not a separate market-data source, and clients must
-still use the Beyin Finance API endpoints documented here.
+The Telegram bot is an account handoff and notification channel. It serves
+accounts that were already connected through the official Beyin Finance app or
+website. It can show account and plan information, deliver signals, manage
+signal automation preferences, and guide manually confirmed Binance order
+actions.
+
+For security, the bot never accepts or displays Beyin passwords, Binance API
+keys, Developer API secrets, or other persistent credentials. During the secure
+linking migration, account registration/linking, Binance credential management,
+and Developer API-key management are unavailable in Telegram; use the official
+app or website instead. It is not a separate market-data source, and clients
+must still use the Beyin Finance API endpoints documented here.
 
 ### Request correlation
 
@@ -1985,9 +1992,12 @@ when a multi-coin job is waiting for earlier coins to finish.
 
 `POST /backtest?action=result`
 
-| Field | Type | Required |
-|-------|------|----------|
-| `job_id` | string | Yes |
+| Field | Type | Required / default | Description |
+|-------|------|--------------------|-------------|
+| `job_id` | string | Yes | Completed backtest job ID |
+| `result_view` | string | `saved` | `saved` returns the authenticated caller's saved replay view when one exists. Use `immutable` to return the original server-stored `result.json` without saved replay settings or metrics. |
+
+Marketplace selectors use `{"job_id": "...", "result_view": "immutable"}` so the displayed return and eligible coins come from the same immutable artifact that `marketplace_publish` validates. This is still a read-only authenticated request: the job is resolved only under the current caller's storage prefix, and the `immutable` response is marked `"result_view": "immutable"`. Unknown values return HTTP 400.
 
 **Response:**
 ```json
@@ -2556,11 +2566,11 @@ page. Malformed cursors and non-integer page sizes return HTTP 400.
 | `monthly_price_credits` | number | Yes | 0 - 10 — fixed MONTHLY subscription fee in credits; 0 is free (billing is monthly, prepaid) |
 | `signal_mode` | string | No | `"full"` (default) or `"signal_only"` |
 | `requested_coins` | string[] | Yes | Non-empty list of selected result coins to evaluate; the server lists only eligible profitable coins |
-| `backtest_job_id` | string | Required for `full` | Selected completed full-range backtest job; server checks its owner, strategy, range, raw data and result |
-| `backtest_saved_revision` | integer | No | Saved result revision; server rejects stale settings or changed source data |
+| `backtest_job_id` | string | Required for `full` | Selected completed full-range backtest job; server checks its owner, strategy, range, raw data and immutable result |
+| `backtest_saved_revision` | integer | No, legacy compatibility | Accepted but ignored. Marketplace always uses the immutable original backtest artifact, not a saved replay view. |
 
 :::{warning}
-Requirements for `signal_mode=full`: Select a completed portfolio or single-asset result that proves full available history and has a positive aggregate return. The server verifies the result under the authenticated user's job storage, checks strategy and raw-data integrity, and derives eligibility and listing metrics from that result. Client-supplied returns are ignored. Only coins with positive return, at least 10 trades, and per-trade geometric gain strictly above 1.001 are listed; losing or otherwise ineligible coins are rejected. The mobile and web publishing forms select a verified result and derive the coin scope automatically. `signal_mode=signal_only` remains available to API clients, requires no backtest and accepts every requested coin.
+Requirements for `signal_mode=full`: Select a completed portfolio or single-asset result that proves full available history and has a positive aggregate return. The server resolves the job only under the authenticated user's storage, checks strategy and raw-data integrity, and derives scope, eligibility and listing metrics from its immutable `result.json`. Client-supplied returns and saved replay settings are ignored. Requested coins must be a canonical subset of that original result's `coins` (or legacy `coins_tested`/single `coin`) scope. Only coins with positive return, at least 10 trades, and per-trade geometric gain strictly above 1.001 are listed; losing or otherwise ineligible coins are rejected. The mobile and web publishing forms select a verified result and derive the coin scope automatically. `signal_mode=signal_only` remains available to API clients, requires no backtest and accepts every requested coin.
 :::
 
 Marketplace listing names are globally disambiguated by appending the creator's
@@ -2570,7 +2580,7 @@ create their own local `test1` strategy.
 
 **Example body:**
 ```json
-{"strategy_key": "emacross", "description": "EMA crossover for BTC", "monthly_price_credits": 0, "signal_mode": "full", "backtest_job_id": "job-123", "backtest_saved_revision": 2, "requested_coins": ["BTC", "ETH", "SOL"]}
+{"strategy_key": "emacross", "description": "EMA crossover for BTC", "monthly_price_credits": 0, "signal_mode": "full", "backtest_job_id": "job-123", "requested_coins": ["BTC", "ETH", "SOL"]}
 ```
 
 **Response:**
@@ -2578,7 +2588,7 @@ create their own local `test1` strategy.
 {"ok": true, "data": {"listing_id": "lst_abc123", "strategy_key": "emacross_ABC123", "strategy_name": "emacross_ABC123", "display_strategy_name": "emacross", "status": "active", "listed_coins": ["BTC", "ETH"], "rejected_coins": {"SOL": "negative_return", "DOGE": "insufficient_trades"}, "monthly_price_credits": 2, "billing_period": "monthly", "signal_mode": "full", "backtest_summary": {"BTC": {"pnl_pct": 12.5, "win_rate": 68.0, "trades": 42}}}}
 ```
 
-**Errors:** 400 invalid strategy, price or coin list; 403 wrong strategy/user; 409 incomplete, missing, unsupported, non-full-range, non-profitable, stale or unverifiable backtest; 400 no eligible coins (`"code": "no_eligible_coins"`); 404 strategy not found.
+**Errors:** 400 invalid strategy, price or coin list; 403 wrong strategy/user; 409 incomplete, missing, unsupported, non-full-range or non-profitable backtest; 400 no eligible coins (`"code": "no_eligible_coins"`); 404 strategy not found.
 
 ### Update Listing
 

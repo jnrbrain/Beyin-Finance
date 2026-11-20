@@ -10,6 +10,8 @@ Public API documentation for [Beyin Finance](https://beyinfinance.com) trading p
 | `GET /` | Public platform configuration |
 | `GET /tradingdata?request_type=<type>` | Trend signals, public market data, bid/ask quotes |
 | `POST /backtest?action=<action>` | Backtest estimates, jobs and results |
+| `POST /ai?request_type=<type>` | Authenticated AI chat and market-analysis operations |
+| `/education/v1/...` | Education catalog, learning and Leader Studio routes; commercial checkout remains configuration-dependent |
 
 ## Authentication
 

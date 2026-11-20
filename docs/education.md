@@ -82,9 +82,11 @@ List endpoints are cursor-paginated:
 | `cursor` | string | Opaque cursor returned by the previous page. Omit for the first page. |
 | `limit` | integer | Page size. |
 
-Send the returned cursor back unchanged to fetch the next page. A null cursor
-means the final page. Malformed cursors return HTTP 400 instead of silently
-restarting at page one.
+Send the returned cursor back unchanged with the same catalog filter, sort, and
+limit values to fetch the next page. A null cursor means the final page.
+Cursors are signed, short-lived, and bound to the original query; a malformed,
+expired, or query-mismatched cursor returns HTTP 400 instead of silently
+restarting at page one. `limit` defaults to 20 and is capped at 50.
 
 ### Idempotency
 
