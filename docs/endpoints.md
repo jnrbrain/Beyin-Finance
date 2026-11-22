@@ -1995,9 +1995,17 @@ when a multi-coin job is waiting for earlier coins to finish.
 | Field | Type | Required / default | Description |
 |-------|------|--------------------|-------------|
 | `job_id` | string | Yes | Completed backtest job ID |
-| `result_view` | string | `saved` | `saved` returns the authenticated caller's saved replay view when one exists. Use `immutable` to return the original server-stored `result.json` without saved replay settings or metrics. |
+| `result_view` | string | `saved` | `saved` returns the authenticated caller's saved replay view when one exists. Use `immutable` to return the original result without saved replay settings or metrics. For portfolio jobs, `range_mode` is projected from the immutable manifest; the stored result is not rewritten. |
 
-Marketplace selectors use `{"job_id": "...", "result_view": "immutable"}` so the displayed return and eligible coins come from the same immutable artifact that `marketplace_publish` validates. This is still a read-only authenticated request: the job is resolved only under the current caller's storage prefix, and the `immutable` response is marked `"result_view": "immutable"`. Unknown values return HTTP 400.
+Marketplace selectors use `{"job_id": "...", "result_view": "immutable"}` so the displayed return, range mode and eligible coins come from the same immutable artifact that `marketplace_publish` validates. This is still a read-only authenticated request: the job is resolved only under the current caller's storage prefix, and the `immutable` response is marked `"result_view": "immutable"`. Unknown values return HTTP 400.
+
+Portfolio results always have effective timestamp bounds, including full-history
+runs; non-empty `filtered_range` timestamps therefore do not prove a custom
+range. New portfolio manifests record the requested `range_mode` explicitly.
+For legacy manifests without that field, the response derives the mode only when
+every coin's effective range can be compared with its recorded available range;
+missing range metadata remains ineligible for Marketplace publishing. This is a
+read projection and does not alter the original result artifact.
 
 **Response:**
 ```json
