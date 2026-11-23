@@ -2472,6 +2472,7 @@ The public `GET /tradingdata` response is the unwrapped listing object. The
     "signal_price_credits": 2,
     "total_pnl_pct": 12.5,
     "win_rate_pct": 68.0,
+    "backtest_metrics": {"trade_count": 120, "win_count": 82, "loss_count": 38, "win_rate_pct": 68.0, "profit_pct": 12.5, "max_drawdown_pct": 8.4, "profit_factor": 1.72, "coins": [{"coin": "BTC", "trade_count": 42, "win_rate_pct": 71.4, "profit_pct": 15.2}], "result_available": true},
     "subscriber_count": 5,
     "total_signals_delivered": 42,
     "created_at": 1784000000,
@@ -2485,6 +2486,12 @@ The public `GET /tradingdata` response is the unwrapped listing object. The
 `is_owner` is evaluated for the authenticated caller. When that caller has a
 deterministic subscription for the listing, `subscription_status` and
 `selected_coins` describe it; otherwise they are an empty string and list.
+For full backtest listings, `total_pnl_pct`, `win_rate_pct`, and
+`backtest_metrics` preserve the selected immutable result's aggregate summary.
+`backtest_metrics.coins` contains eligible per-coin results and is not used to
+replace the selected portfolio aggregate. If the original job can no longer be
+verified, `backtest_metrics.result_available` is `false`; the saved publication
+snapshot remains available and is labeled as such by clients.
 
 **Errors:** 404 listing not found (or removed and not owner).
 
@@ -2525,7 +2532,7 @@ subscription.
 
 **Response:**
 ```json
-{"ok": true, "data": {"status": "active", "auto_renew": false, "subscription_id": "sub_xyz789", "expires_at": 1786600000, "bindings_removed": 0}}
+{"ok": true, "data": {"status": "active", "auto_renew": false, "pending_end_reason": "cancelled_by_subscriber", "subscription_id": "sub_xyz789", "expires_at": 1786600000, "bindings_removed": 0}}
 ```
 
 Unsubscribe turns off renewal but does not end the prepaid period immediately.
@@ -2557,7 +2564,7 @@ The subscription remains active, and its bindings remain usable until
 
 **Response:**
 ```json
-{"ok": true, "data": {"subscriptions": [{"subscription_id": "sub_xyz789", "listing_id": "lst_abc123", "creator_beyin_id": "ABC123", "selected_coins": ["BTC"], "status": "active", "end_reason": "", "auto_renew": true, "billing_period": "monthly", "monthly_price_credits": 2, "signal_price_credits": 2, "signals_received": 12, "credits_spent": 2.0, "next_charge_at": 1786600000, "expires_at": 1786600000, "ended_at": 0, "created_at": 1784000000, "divide": 1, "scope": "", "run_config": {}}], "last_evaluated_key": "base64...", "has_more": true}}
+{"ok": true, "data": {"subscriptions": [{"subscription_id": "sub_xyz789", "listing_id": "lst_abc123", "creator_beyin_id": "ABC123", "selected_coins": ["BTC"], "status": "active", "end_reason": "", "auto_renew": false, "pending_end_reason": "cancelled_by_subscriber", "billing_period": "monthly", "monthly_price_credits": 2, "signal_price_credits": 2, "signals_received": 12, "credits_spent": 2.0, "next_charge_at": 1786600000, "expires_at": 1786600000, "ended_at": 0, "created_at": 1784000000, "divide": 1, "scope": "", "run_config": {}}], "last_evaluated_key": "base64...", "has_more": true}}
 ```
 
 For both account lists, return the cursor unchanged to fetch the next result
@@ -2571,7 +2578,7 @@ page. Malformed cursors and non-integer page sizes return HTTP 400.
 |-------|------|----------|-------------|
 | `strategy_key` | string | Yes | Lowercase letters and numbers only |
 | `description` | string | No | Max 500 chars, no HTML |
-| `monthly_price_credits` | number | Yes | 0 - 10 — fixed MONTHLY subscription fee in credits; 0 is free (billing is monthly, prepaid) |
+| `monthly_price_credits` | number | Yes | 0 for a free subscription, or 0.1 - 10 for a paid fixed MONTHLY fee in credits (billing is monthly, prepaid) |
 | `signal_mode` | string | No | `"full"` (default) or `"signal_only"` |
 | `requested_coins` | string[] | Yes | Non-empty list of selected result coins to evaluate; the server lists only eligible profitable coins |
 | `backtest_job_id` | string | Required for `full` | Selected completed full-range backtest job; server checks its owner, strategy, range, raw data and immutable result |
@@ -2593,7 +2600,7 @@ create their own local `test1` strategy.
 
 **Response:**
 ```json
-{"ok": true, "data": {"listing_id": "lst_abc123", "strategy_key": "emacross_ABC123", "strategy_name": "emacross_ABC123", "display_strategy_name": "emacross", "status": "active", "listed_coins": ["BTC", "ETH"], "rejected_coins": {"SOL": "negative_return", "DOGE": "insufficient_trades"}, "monthly_price_credits": 2, "billing_period": "monthly", "signal_mode": "full", "backtest_summary": {"BTC": {"pnl_pct": 12.5, "win_rate": 68.0, "trades": 42}}}}
+{"ok": true, "data": {"listing_id": "lst_abc123", "strategy_key": "emacross_ABC123", "strategy_name": "emacross_ABC123", "display_strategy_name": "emacross", "status": "active", "listed_coins": ["BTC", "ETH"], "rejected_coins": {"SOL": "negative_return", "DOGE": "insufficient_trades"}, "monthly_price_credits": 2, "billing_period": "monthly", "signal_mode": "full", "total_pnl_pct": 18.2, "win_rate_pct": 61.5, "backtest_metrics": {"total_return_pct": 18.2, "win_rate_pct": 61.5, "total_trades": 120, "max_drawdown_pct": 8.4, "profit_factor": 1.72}, "backtest_summary": {"BTC": {"pnl_pct": 12.5, "win_rate": 68.0, "trades": 42}}}}
 ```
 
 **Errors:** 400 invalid strategy, price or coin list; 403 wrong strategy/user; 409 incomplete, missing, unsupported, non-full-range or non-profitable backtest; 400 no eligible coins (`"code": "no_eligible_coins"`); 404 strategy not found.
@@ -2605,7 +2612,7 @@ create their own local `test1` strategy.
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `listing_id` | string | Yes | |
-| `monthly_price_credits` | number | No | 0 - 10 — new monthly subscription fee; 0 is free |
+| `monthly_price_credits` | number | No | 0 for a free subscription, or 0.1 - 10 for a paid monthly fee |
 | `description` | string | No | Max 500 chars, no HTML |
 
 :::{danger}
