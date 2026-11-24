@@ -2440,7 +2440,8 @@ For the authenticated caller's ownership and subscription state, use:
 `POST /user?request_type=marketplace_listing_detail`
 
 This authenticated form adds `is_owner`, `subscription_status`, and
-`selected_coins` for the caller.
+`selected_coins` for the caller. The public `owner` value remains masked for
+everyone, including the listing owner; only `is_owner` changes for that caller.
 
 The public `GET /tradingdata` response is the unwrapped listing object. The
 `ok`/`data` envelope shown below is the authenticated `/user` response.
@@ -2513,7 +2514,8 @@ The public `GET /tradingdata` response is the unwrapped listing object. The
 }
 ```
 
-`is_owner` is evaluated for the authenticated caller. When that caller has a
+`is_owner` is evaluated for the authenticated caller. The `owner` field stays
+masked for both the creator and other readers. When that caller has a
 deterministic subscription for the listing, `subscription_status` and
 `selected_coins` describe it; otherwise they are an empty string and list.
 For full backtest listings, `total_pnl_pct`, `win_rate_pct`, and
