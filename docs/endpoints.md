@@ -2419,7 +2419,7 @@ identity is tracked for audit and entitlement checks.
 
 **Response:**
 ```json
-{"listings": [{"listing_id": "lst_abc123", "strategy_name": "emacross", "owner": "MT***A", "description": "EMA crossover strategy", "market_type": "spot", "asset_class": "crypto", "provider": "binance", "exchange": "binance", "data_source": "binance", "trading_enabled": true, "timeframe": "4h", "signal_mode": "full", "leverage": 1, "listed_coins": ["BTC", "ETH"], "billing_period": "monthly", "monthly_price_credits": 2, "signal_price_credits": 2, "status": "active", "total_pnl_pct": 12.5, "win_rate_pct": 68.0, "subscriber_count": 5, "total_signals_delivered": 42, "created_at": 1784000000, "is_owner": false, "subscription_status": "", "selected_coins": []}], "count": 1, "next_cursor": "base64...", "has_more": true}
+{"listings": [{"listing_id": "lst_abc123", "public_name": "trend-takip-edici-abc123", "strategy_name": "trend-takip-edici-abc123", "owner": "MT***A", "description": "EMA crossover strategy", "market_type": "spot", "asset_class": "crypto", "provider": "binance", "exchange": "binance", "data_source": "binance", "trading_enabled": true, "timeframe": "4h", "signal_mode": "full", "leverage": 1, "listed_coins": ["BTC", "ETH"], "billing_period": "monthly", "monthly_price_credits": 2, "signal_price_credits": 2, "status": "active", "total_pnl_pct": 12.5, "win_rate_pct": 68.0, "subscriber_count": 5, "total_signals_delivered": 42, "created_at": 1784000000, "is_owner": false, "subscription_status": "", "selected_coins": []}], "count": 1, "next_cursor": "base64...", "has_more": true}
 ```
 
 Send the returned cursor unchanged to fetch the next page. `has_more=false`
@@ -2455,7 +2455,8 @@ The public `GET /tradingdata` response is the unwrapped listing object. The
   "ok": true,
   "data": {
     "listing_id": "lst_abc123",
-    "strategy_name": "emacross",
+    "public_name": "trend-takip-edici-abc123",
+    "strategy_name": "trend-takip-edici-abc123",
     "owner": "MT***A",
     "description": "EMA crossover strategy",
     "market_type": "spot",
@@ -2481,6 +2482,20 @@ The public `GET /tradingdata` response is the unwrapped listing object. The
       "profit_pct": 12.5,
       "max_drawdown_pct": 8.4,
       "profit_factor": 1.72,
+      "avg_profit_per_trade_pct": 0.42,
+      "avg_win_return_pct": 1.8,
+      "avg_loss_return_pct": -1.1,
+      "best_trade_pct": 4.6,
+      "worst_trade_pct": -3.2,
+      "sharpe_ratio": 1.34,
+      "sortino_ratio": 1.72,
+      "calmar_ratio": 1.49,
+      "expectancy_pct": 0.38,
+      "exposure_pct": 41.2,
+      "avg_holding_hours": 6.5,
+      "longest_win_streak": 6,
+      "longest_loss_streak": 3,
+      "avg_signals_per_month": 18.4,
       "result_view": "saved_portfolio",
       "result_revision": 7,
       "coins": [{"coin": "BTC", "trade_count": 42, "win_rate_pct": 71.4, "profit_pct": 15.2}],
@@ -2511,6 +2526,16 @@ replace the selected portfolio aggregate. `backtest_metrics.result_view` and
 saved-view edits do not change this snapshot. If the original job can no longer
 be verified, `backtest_metrics.result_available` is `false`; the saved
 publication snapshot remains available and is labeled as such by clients.
+The Marketplace detail displays the selected result's core and advanced
+metrics. `backtest_metrics.coins` includes only listed coins that passed
+server-side eligibility checks; failed and excluded coins are omitted. Signal
+metrics are based on closed strategy signals, not user-entered trades.
+
+`public_name` is the user-facing lowercase Latin alias; `strategy_name` is its
+compatibility alias. Legacy listings without `public_name` receive an alias
+derived from their public `listing_id`. Public and personalized listing detail
+responses never return `strategy_key`, `local_strategy_name`, or an internal
+strategy name as the title.
 
 For newly published full-mode listings, `backtest_metrics.equity_curve_pct`
 contains up to 120 points from the exact selected result, normalized to return
@@ -2586,8 +2611,12 @@ The subscription remains active, and its bindings remain usable until
 
 **Response:**
 ```json
-{"ok": true, "data": {"listings": [{"listing_id": "lst_abc123", "strategy_name": "emacross", "status": "active", "signal_mode": "full", "market_type": "spot", "asset_class": "crypto", "provider": "binance", "exchange": "binance", "data_source": "binance", "trading_enabled": true, "timeframe": "4h", "listed_coins": ["BTC"], "billing_period": "monthly", "monthly_price_credits": 2, "signal_price_credits": 2, "subscriber_count": 5, "total_signals_delivered": 42, "total_credits_earned": 100.0, "total_pnl_pct": 12.5, "win_rate_pct": 68.0, "created_at": 1784000000}], "last_evaluated_key": "base64...", "has_more": true}}
+{"ok": true, "data": {"listings": [{"listing_id": "lst_abc123", "public_name": "trend-takip-edici-abc123", "strategy_name": "trend-takip-edici-abc123", "local_strategy_name": "emacross", "status": "active", "signal_mode": "full", "market_type": "spot", "asset_class": "crypto", "provider": "binance", "exchange": "binance", "data_source": "binance", "trading_enabled": true, "timeframe": "4h", "listed_coins": ["BTC"], "billing_period": "monthly", "monthly_price_credits": 2, "signal_price_credits": 2, "subscriber_count": 5, "total_signals_delivered": 42, "total_credits_earned": 100.0, "total_pnl_pct": 12.5, "win_rate_pct": 68.0, "created_at": 1784000000}], "last_evaluated_key": "base64...", "has_more": true}}
 ```
+
+`local_strategy_name` is returned only by this authenticated owner-scoped
+endpoint to map a listing back to the publisher's local strategy. Public
+Marketplace responses and subscriber responses use the public alias instead.
 
 ### My Subscriptions
 
@@ -2600,7 +2629,7 @@ The subscription remains active, and its bindings remain usable until
 
 **Response:**
 ```json
-{"ok": true, "data": {"subscriptions": [{"subscription_id": "sub_xyz789", "listing_id": "lst_abc123", "creator_beyin_id": "ABC123", "selected_coins": ["BTC"], "status": "active", "end_reason": "", "auto_renew": false, "pending_end_reason": "cancelled_by_subscriber", "billing_period": "monthly", "monthly_price_credits": 2, "signal_price_credits": 2, "signals_received": 12, "credits_spent": 2.0, "next_charge_at": 1786600000, "expires_at": 1786600000, "ended_at": 0, "created_at": 1784000000, "divide": 1, "scope": "", "run_config": {}}], "last_evaluated_key": "base64...", "has_more": true}}
+{"ok": true, "data": {"subscriptions": [{"subscription_id": "sub_xyz789", "listing_id": "lst_abc123", "public_name": "trend-takip-edici-abc123", "strategy_name": "trend-takip-edici-abc123", "name": "trend-takip-edici-abc123", "creator_beyin_id": "ABC123", "selected_coins": ["BTC"], "status": "active", "end_reason": "", "auto_renew": false, "pending_end_reason": "cancelled_by_subscriber", "billing_period": "monthly", "monthly_price_credits": 2, "signal_price_credits": 2, "signals_received": 12, "credits_spent": 2.0, "next_charge_at": 1786600000, "expires_at": 1786600000, "ended_at": 0, "created_at": 1784000000, "divide": 1, "scope": "", "run_config": {}}], "last_evaluated_key": "base64...", "has_more": true}}
 ```
 
 For both account lists, return the cursor unchanged to fetch the next result
@@ -2613,6 +2642,7 @@ page. Malformed cursors and non-integer page sizes return HTTP 400.
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `strategy_key` | string | Yes | Lowercase letters and numbers only |
+| `public_name` | string | Yes | Publisher-entered name, 1-64 characters. The server transliterates it to a lowercase Latin slug and adds a unique suffix shared with `listing_id`. |
 | `description` | string | No | Max 500 chars, no HTML |
 | `monthly_price_credits` | number | Yes | 0 for a free subscription, or 0.1 - 10 for a paid fixed MONTHLY fee in credits (billing is monthly, prepaid) |
 | `signal_mode` | string | No | `"full"` (default) or `"signal_only"` |
@@ -2624,22 +2654,24 @@ page. Malformed cursors and non-integer page sizes return HTTP 400.
 Requirements for `signal_mode=full`: Select a completed portfolio or single-asset result that proves full available history and has a positive aggregate return. The server resolves the job only under the authenticated user's storage, checks strategy and raw-data integrity, and never trusts a return sent by the client. With `backtest_saved_revision=0` or omitted, the aggregate comes from the immutable original result. With a positive revision, the server requires that exact saved portfolio revision, verifies that its source ETags still match, and requires `requested_coins` to exactly match its saved `selected_coins`. The listing's aggregate comes from that server-calculated saved replay; full-range proof and per-coin eligibility remain tied to the immutable original result. If the saved revision or source data changed, the server returns HTTP 409 and the publisher must reopen the backtest and select it again. Only coins with positive original per-coin return, at least 10 trades, and per-trade geometric gain strictly above 1.001 are listed; a saved portfolio is rejected if any selected coin is ineligible. The mobile and web publishing forms select a verified result and derive the coin scope automatically. `signal_mode=signal_only` remains available to API clients, requires no backtest and accepts every requested coin.
 :::
 
-Marketplace listing names are globally disambiguated by appending the creator's
-Beyin ID to the user's local strategy name. For example, a local strategy named
-`test1` owned by `ABC123` is listed as `test1_ABC123`. Other users may still
-create their own local `test1` strategy.
+`strategy_key` privately maps the listing to the publisher's local strategy.
+It is used only for owner-scoped validation, signal lookup and binding creation;
+it is not returned to Marketplace customers. A public name such as
+`Trend Takip Edici` becomes a lowercase Latin slug such as
+`trend-takip-edici-a1b2c3d4e5f6`. The suffix is shared with the unique
+`listing_id`, so two publishers may choose the same words without colliding.
 
 **Example body:**
 ```json
-{"strategy_key": "emacross", "description": "EMA crossover for BTC", "monthly_price_credits": 0, "signal_mode": "full", "backtest_job_id": "job-123", "backtest_saved_revision": 7, "requested_coins": ["BTC", "ETH"]}
+{"strategy_key": "emacross", "public_name": "Trend Takip Edici", "description": "EMA crossover for BTC", "monthly_price_credits": 0, "signal_mode": "full", "backtest_job_id": "job-123", "backtest_saved_revision": 7, "requested_coins": ["BTC", "ETH"]}
 ```
 
 **Response:**
 ```json
-{"ok": true, "data": {"listing_id": "lst_abc123", "strategy_key": "emacross_ABC123", "strategy_name": "emacross_ABC123", "display_strategy_name": "emacross", "status": "active", "listed_coins": ["BTC", "ETH"], "rejected_coins": {}, "monthly_price_credits": 0, "billing_period": "monthly", "signal_mode": "full", "backtest_job_id": "job-123", "backtest_saved_revision": 7, "backtest_result_view": "saved_portfolio", "total_pnl_pct": 356.52, "win_rate_pct": 72, "backtest_metrics": {"total_return_pct": 356.52, "win_rate_pct": 72, "total_trades": 80, "max_drawdown_pct": 18.5}, "backtest_summary": {"BTC": {"pnl_pct": 12.5, "win_rate": 68.0, "trades": 42}, "ETH": {"pnl_pct": 24.0, "win_rate": 70.0, "trades": 38}}}}
+{"ok": true, "data": {"listing_id": "lst_a1b2c3d4e5f6", "public_name": "trend-takip-edici-a1b2c3d4e5f6", "strategy_name": "trend-takip-edici-a1b2c3d4e5f6", "status": "active", "listed_coins": ["BTC", "ETH"], "rejected_coins": {}, "monthly_price_credits": 0, "billing_period": "monthly", "signal_mode": "full", "backtest_job_id": "job-123", "backtest_saved_revision": 7, "backtest_result_view": "saved_portfolio", "total_pnl_pct": 356.52, "win_rate_pct": 72, "backtest_metrics": {"total_return_pct": 356.52, "win_rate_pct": 72, "total_trades": 80, "max_drawdown_pct": 18.5, "profit_factor": 1.9, "sharpe_ratio": 1.4, "sortino_ratio": 2.1, "calmar_ratio": 1.8, "expectancy_pct": 0.62, "avg_signals_per_month": 18.4}, "backtest_summary": {"BTC": {"pnl_pct": 12.5, "win_rate": 68.0, "trades": 42}, "ETH": {"pnl_pct": 24.0, "win_rate": 70.0, "trades": 38}}}}
 ```
 
-**Errors:** 400 invalid strategy, price or coin list; 403 wrong strategy/user; 409 incomplete, missing, unsupported, non-full-range, non-profitable or stale saved result; 400 no eligible coins (`"code": "no_eligible_coins"`); 404 strategy not found.
+**Errors:** 400 invalid strategy, public name, price or coin list; 403 wrong strategy/user; 409 incomplete, missing, unsupported, non-full-range, non-profitable or stale saved result; 400 no eligible coins (`"code": "no_eligible_coins"`); 404 strategy not found.
 
 ### Update Listing
 

@@ -157,13 +157,16 @@ class PublicReferenceScopeTests(unittest.TestCase):
         )
         self.assertIn("It is not a separate market-data source", PUBLISHED_SOURCE)
 
-    def test_strategy_names_are_user_scoped_and_marketplace_suffixed(self):
+    def test_local_strategy_names_stay_private_behind_public_marketplace_aliases(self):
         self.assertIn(
             "Unique only within the authenticated user's account",
             ENDPOINTS,
         )
-        self.assertIn("test1_ABC123", ENDPOINTS)
-        self.assertIn("create their own local `test1` strategy", ENDPOINTS)
+        self.assertIn('`public_name` | string | Yes', ENDPOINTS)
+        self.assertIn("trend-takip-edici-a1b2c3d4e5f6", ENDPOINTS)
+        self.assertIn("`strategy_key` privately maps the listing", ENDPOINTS)
+        self.assertIn("not returned to Marketplace customers", ENDPOINTS)
+        self.assertIn("`local_strategy_name` is returned only", ENDPOINTS)
 
     def test_backtest_lookback_uses_runtime_preflight_not_fixed_5000_cap(self):
         strategy_reference = ENDPOINTS.split("## Strategy", 1)[1].split(
