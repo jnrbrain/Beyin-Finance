@@ -190,7 +190,24 @@ An isolated GPTEST fixture verified conditional save/retry/conflict, reopened
 portfolio and independent coin summaries, order pages, strict positive-profit
 eligibility and protection against invalidating an existing saved portfolio.
 The original result bytes and credit balance remained unchanged. The fixture
-was removed after the checks. Marketplace publishing reads the original
-`<strategy>_full_range.json` artifact; saving a view does not rewrite it.
+was removed after the checks. The original `<strategy>_full_range.json`
+artifact remains immutable; saved views do not rewrite it.
+
+### Marketplace result binding — verified 2026-11-24
+
+BacktestOrchestrator and UserAPI were deployed with saved-portfolio Marketplace
+result binding. For a full-range job, the Marketplace result view can use the
+owner's saved portfolio selection when its revision and source artifact ETags
+match the stored snapshot. The server derives the displayed return from that
+saved replay, verifies every selected coin against the original result, and
+rejects stale or incomplete snapshots. Publishing records the verified saved
+revision and metrics so the listing detail continues to describe the result
+that was published even if the owner later changes saved settings. The original
+backtest files and existing listings are not rewritten by this flow.
+
+The production Android publish flow was checked with an owner-held full-range
+job: the saved portfolio appeared alongside single-asset results, selecting it
+populated its eligible coin scope, and its result summary matched the saved
+portfolio metrics. No listing was created during this verification.
 
 Conditional snapshot writes follow the [AWS S3 conditional-write contract](https://docs.aws.amazon.com/AmazonS3/latest/userguide/conditional-writes.html).

@@ -1995,9 +1995,9 @@ when a multi-coin job is waiting for earlier coins to finish.
 | Field | Type | Required / default | Description |
 |-------|------|--------------------|-------------|
 | `job_id` | string | Yes | Completed backtest job ID |
-| `result_view` | string | `saved` | `saved` returns the authenticated caller's saved replay view when one exists. Use `immutable` to return the original result without saved replay settings or metrics. For portfolio jobs, `range_mode` is projected from the immutable manifest; the stored result is not rewritten. |
+| `result_view` | string | `saved` | `saved` returns the authenticated caller's saved replay view when one exists. `immutable` returns the original result. `marketplace` returns a verified saved main portfolio aggregate when available, while retaining original full-range proof and per-coin outcomes; otherwise it returns the original. For portfolio jobs, `range_mode` is projected from the immutable manifest; the stored result is not rewritten. |
 
-Marketplace selectors use `{"job_id": "...", "result_view": "immutable"}` so the displayed return, range mode and eligible coins come from the same immutable artifact that `marketplace_publish` validates. This is still a read-only authenticated request: the job is resolved only under the current caller's storage prefix, and the `immutable` response is marked `"result_view": "immutable"`. Unknown values return HTTP 400.
+Marketplace selectors use `{"job_id": "...", "result_view": "marketplace"}`. If the caller has a source-ETag-valid saved portfolio, the response marks `marketplace_view` as `saved_portfolio`, includes `saved_revision`, and returns its server-calculated aggregate while preserving the original range proof and per-coin outcomes. Otherwise it marks the view as `original`. The request remains read-only and authenticated: the job is resolved only under the current caller's storage prefix. Unknown values return HTTP 400; stale saved data returns HTTP 409.
 
 Portfolio results always have effective timestamp bounds, including full-history
 runs; non-empty `filtered_range` timestamps therefore do not prove a custom
@@ -2183,10 +2183,11 @@ storage failure never reports a successful save. Only completed jobs can be
 saved. Old jobs without complete scenario signals cannot be saved.
 
 **Marketplace:** saved views do not alter the original job, raw signals,
-manifest, original history index, or the strategy full-range artifact used by
-Marketplace publishing. They update the user's result view and displayed
-history return only. Marketplace eligibility, listing metrics and published
-results continue to use the original full-range backtest.
+manifest, or original history index. A publisher may select an exact saved
+portfolio revision for a listing; its aggregate is used only after its source
+ETags are revalidated. Full-range proof and per-coin eligibility still come
+from the immutable original backtest. Saved single-coin views do not change
+Marketplace results, and later saved-view edits do not rewrite existing listings.
 
 ### Walk-Forward Analysis
 
@@ -2472,7 +2473,7 @@ The public `GET /tradingdata` response is the unwrapped listing object. The
     "signal_price_credits": 2,
     "total_pnl_pct": 12.5,
     "win_rate_pct": 68.0,
-    "backtest_metrics": {"trade_count": 120, "win_count": 82, "loss_count": 38, "win_rate_pct": 68.0, "profit_pct": 12.5, "max_drawdown_pct": 8.4, "profit_factor": 1.72, "coins": [{"coin": "BTC", "trade_count": 42, "win_rate_pct": 71.4, "profit_pct": 15.2}], "result_available": true},
+    "backtest_metrics": {"trade_count": 120, "win_count": 82, "loss_count": 38, "win_rate_pct": 68.0, "profit_pct": 12.5, "max_drawdown_pct": 8.4, "profit_factor": 1.72, "result_view": "saved_portfolio", "result_revision": 7, "coins": [{"coin": "BTC", "trade_count": 42, "win_rate_pct": 71.4, "profit_pct": 15.2}], "result_available": true},
     "subscriber_count": 5,
     "total_signals_delivered": 42,
     "created_at": 1784000000,
@@ -2487,11 +2488,15 @@ The public `GET /tradingdata` response is the unwrapped listing object. The
 deterministic subscription for the listing, `subscription_status` and
 `selected_coins` describe it; otherwise they are an empty string and list.
 For full backtest listings, `total_pnl_pct`, `win_rate_pct`, and
-`backtest_metrics` preserve the selected immutable result's aggregate summary.
+`backtest_metrics` preserve the selected verified result's aggregate summary
+(saved portfolio replay when a positive `backtest_saved_revision` was selected;
+otherwise the immutable original result).
 `backtest_metrics.coins` contains eligible per-coin results and is not used to
-replace the selected portfolio aggregate. If the original job can no longer be
-verified, `backtest_metrics.result_available` is `false`; the saved publication
-snapshot remains available and is labeled as such by clients.
+replace the selected portfolio aggregate. `backtest_metrics.result_view` and
+`result_revision` identify the original or saved portfolio snapshot. Later
+saved-view edits do not change this snapshot. If the original job can no longer
+be verified, `backtest_metrics.result_available` is `false`; the saved
+publication snapshot remains available and is labeled as such by clients.
 
 **Errors:** 404 listing not found (or removed and not owner).
 
@@ -2581,11 +2586,11 @@ page. Malformed cursors and non-integer page sizes return HTTP 400.
 | `monthly_price_credits` | number | Yes | 0 for a free subscription, or 0.1 - 10 for a paid fixed MONTHLY fee in credits (billing is monthly, prepaid) |
 | `signal_mode` | string | No | `"full"` (default) or `"signal_only"` |
 | `requested_coins` | string[] | Yes | Non-empty list of selected result coins to evaluate; the server lists only eligible profitable coins |
-| `backtest_job_id` | string | Required for `full` | Selected completed full-range backtest job; server checks its owner, strategy, range, raw data and immutable result |
-| `backtest_saved_revision` | integer | No, legacy compatibility | Accepted but ignored. Marketplace always uses the immutable original backtest artifact, not a saved replay view. |
+| `backtest_job_id` | string | Required for `full` | Selected completed full-range backtest job; server checks its owner, strategy, range and raw data |
+| `backtest_saved_revision` | integer | No | `0` or omitted selects the immutable original result. A positive value selects that exact saved portfolio revision returned by the authenticated backtest result view. |
 
 :::{warning}
-Requirements for `signal_mode=full`: Select a completed portfolio or single-asset result that proves full available history and has a positive aggregate return. The server resolves the job only under the authenticated user's storage, checks strategy and raw-data integrity, and derives scope, eligibility and listing metrics from its immutable `result.json`. Client-supplied returns and saved replay settings are ignored. Requested coins must be a canonical subset of that original result's `coins` (or legacy `coins_tested`/single `coin`) scope. Only coins with positive return, at least 10 trades, and per-trade geometric gain strictly above 1.001 are listed; losing or otherwise ineligible coins are rejected. The mobile and web publishing forms select a verified result and derive the coin scope automatically. `signal_mode=signal_only` remains available to API clients, requires no backtest and accepts every requested coin.
+Requirements for `signal_mode=full`: Select a completed portfolio or single-asset result that proves full available history and has a positive aggregate return. The server resolves the job only under the authenticated user's storage, checks strategy and raw-data integrity, and never trusts a return sent by the client. With `backtest_saved_revision=0` or omitted, the aggregate comes from the immutable original result. With a positive revision, the server requires that exact saved portfolio revision, verifies that its source ETags still match, and requires `requested_coins` to exactly match its saved `selected_coins`. The listing's aggregate comes from that server-calculated saved replay; full-range proof and per-coin eligibility remain tied to the immutable original result. If the saved revision or source data changed, the server returns HTTP 409 and the publisher must reopen the backtest and select it again. Only coins with positive original per-coin return, at least 10 trades, and per-trade geometric gain strictly above 1.001 are listed; a saved portfolio is rejected if any selected coin is ineligible. The mobile and web publishing forms select a verified result and derive the coin scope automatically. `signal_mode=signal_only` remains available to API clients, requires no backtest and accepts every requested coin.
 :::
 
 Marketplace listing names are globally disambiguated by appending the creator's
@@ -2595,15 +2600,15 @@ create their own local `test1` strategy.
 
 **Example body:**
 ```json
-{"strategy_key": "emacross", "description": "EMA crossover for BTC", "monthly_price_credits": 0, "signal_mode": "full", "backtest_job_id": "job-123", "requested_coins": ["BTC", "ETH", "SOL"]}
+{"strategy_key": "emacross", "description": "EMA crossover for BTC", "monthly_price_credits": 0, "signal_mode": "full", "backtest_job_id": "job-123", "backtest_saved_revision": 7, "requested_coins": ["BTC", "ETH"]}
 ```
 
 **Response:**
 ```json
-{"ok": true, "data": {"listing_id": "lst_abc123", "strategy_key": "emacross_ABC123", "strategy_name": "emacross_ABC123", "display_strategy_name": "emacross", "status": "active", "listed_coins": ["BTC", "ETH"], "rejected_coins": {"SOL": "negative_return", "DOGE": "insufficient_trades"}, "monthly_price_credits": 2, "billing_period": "monthly", "signal_mode": "full", "total_pnl_pct": 18.2, "win_rate_pct": 61.5, "backtest_metrics": {"total_return_pct": 18.2, "win_rate_pct": 61.5, "total_trades": 120, "max_drawdown_pct": 8.4, "profit_factor": 1.72}, "backtest_summary": {"BTC": {"pnl_pct": 12.5, "win_rate": 68.0, "trades": 42}}}}
+{"ok": true, "data": {"listing_id": "lst_abc123", "strategy_key": "emacross_ABC123", "strategy_name": "emacross_ABC123", "display_strategy_name": "emacross", "status": "active", "listed_coins": ["BTC", "ETH"], "rejected_coins": {}, "monthly_price_credits": 0, "billing_period": "monthly", "signal_mode": "full", "backtest_job_id": "job-123", "backtest_saved_revision": 7, "backtest_result_view": "saved_portfolio", "total_pnl_pct": 356.52, "win_rate_pct": 72, "backtest_metrics": {"total_return_pct": 356.52, "win_rate_pct": 72, "total_trades": 80, "max_drawdown_pct": 18.5}, "backtest_summary": {"BTC": {"pnl_pct": 12.5, "win_rate": 68.0, "trades": 42}, "ETH": {"pnl_pct": 24.0, "win_rate": 70.0, "trades": 38}}}}
 ```
 
-**Errors:** 400 invalid strategy, price or coin list; 403 wrong strategy/user; 409 incomplete, missing, unsupported, non-full-range or non-profitable backtest; 400 no eligible coins (`"code": "no_eligible_coins"`); 404 strategy not found.
+**Errors:** 400 invalid strategy, price or coin list; 403 wrong strategy/user; 409 incomplete, missing, unsupported, non-full-range, non-profitable or stale saved result; 400 no eligible coins (`"code": "no_eligible_coins"`); 404 strategy not found.
 
 ### Update Listing
 
