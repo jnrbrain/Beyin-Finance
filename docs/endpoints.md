@@ -2524,7 +2524,10 @@ time and coin filters. Clients may display the selected backtest in
 yellow and the post-publication signal series in blue. These curve fields are
 optional for older listings: clients should state that a verified chart is
 unavailable instead of rebuilding one from a mutable saved view. The existing
-publish-time aggregate metrics remain available in that case.
+publish-time aggregate metrics remain available in that case. For an older
+saved-portfolio listing, the server may return a curve only if the exact saved
+revision, all original source ETags, listed coin scope, and final return still
+match the publication snapshot.
 
 **Errors:** 404 listing not found (or removed and not owner).
 
