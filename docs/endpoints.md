@@ -2473,7 +2473,21 @@ The public `GET /tradingdata` response is the unwrapped listing object. The
     "signal_price_credits": 2,
     "total_pnl_pct": 12.5,
     "win_rate_pct": 68.0,
-    "backtest_metrics": {"trade_count": 120, "win_count": 82, "loss_count": 38, "win_rate_pct": 68.0, "profit_pct": 12.5, "max_drawdown_pct": 8.4, "profit_factor": 1.72, "result_view": "saved_portfolio", "result_revision": 7, "coins": [{"coin": "BTC", "trade_count": 42, "win_rate_pct": 71.4, "profit_pct": 15.2}], "result_available": true},
+    "backtest_metrics": {
+      "trade_count": 120,
+      "win_count": 82,
+      "loss_count": 38,
+      "win_rate_pct": 68.0,
+      "profit_pct": 12.5,
+      "max_drawdown_pct": 8.4,
+      "profit_factor": 1.72,
+      "result_view": "saved_portfolio",
+      "result_revision": 7,
+      "coins": [{"coin": "BTC", "trade_count": 42, "win_rate_pct": 71.4, "profit_pct": 15.2}],
+      "result_available": true,
+      "equity_curve_pct": [0.0, 4.8, -2.1, 12.5],
+      "actual_signal_curve_pct": [12.5, 13.2, 11.9]
+    },
     "subscriber_count": 5,
     "total_signals_delivered": 42,
     "created_at": 1784000000,
@@ -2497,6 +2511,20 @@ replace the selected portfolio aggregate. `backtest_metrics.result_view` and
 saved-view edits do not change this snapshot. If the original job can no longer
 be verified, `backtest_metrics.result_available` is `false`; the saved
 publication snapshot remains available and is labeled as such by clients.
+
+For newly published full-mode listings, `backtest_metrics.equity_curve_pct`
+contains up to 120 points from the exact selected result, normalized to return
+from the initial balance. `backtest_metrics.actual_signal_curve_pct` is empty
+until the listing has closed signals after publication; when present, it starts
+at the backtest's final return and compounds subsequent closed signal returns
+for coins in `listed_coins`. This is signal performance for display and is not
+the publisher's account balance. The source is bounded to the latest 1,000
+closed strategy signal rows per detail request before applying the listing
+time and coin filters. Clients may display the selected backtest in
+yellow and the post-publication signal series in blue. These curve fields are
+optional for older listings: clients should state that a verified chart is
+unavailable instead of rebuilding one from a mutable saved view. The existing
+publish-time aggregate metrics remain available in that case.
 
 **Errors:** 404 listing not found (or removed and not owner).
 
