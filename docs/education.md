@@ -247,9 +247,12 @@ before sending a customer to payment. `mode: "unavailable"` means checkout
 cannot continue. Use the server's [order status](#get-order-status) to verify
 payment and entitlement after checkout.
 
-If the response is lost, stop automatic retries. A repeated request can
-create another order even if it sends the same `Idempotency-Key`. If the
-client has an order ID, check its status before initiating checkout again.
+For new checkouts, retry a lost response with the original `Idempotency-Key`,
+product, price version, and storefront. The retry returns the same order and
+sets `Idempotent-Replayed: true`. Changing those inputs with the same key
+returns `409 idempotency_conflict`. A processed or expired order returns
+`action.mode: "unavailable"`. If you have the order ID, you can also check
+its status directly.
 
 **Errors:** 400 validation, 401 unauthorized, 409 conflict (duplicate),
 422 unprocessable (e.g. checkout closed / not purchasable), 429 rate limited.

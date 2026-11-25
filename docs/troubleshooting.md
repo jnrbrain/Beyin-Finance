@@ -40,7 +40,7 @@ to find and cancel work you no longer need.
 | A read times out or gets a temporary service error | Retry with backoff within your time budget. |
 | Strategy create or edit loses its response | Reuse the same `Idempotency-Key` and request body as documented for the operation. On `409 idempotency_conflict`, check the original request and use a new key for a new operation. |
 | A backtest launch or Marketplace publish loses its response | Check [Backtest History](endpoints.md#backtest-history) or [My Listings](endpoints.md#my-listings) before resubmitting. |
-| An Education checkout loses its response | Stop automatic retries. If you have the order ID, check [Get Order Status](education.md#get-order-status) before trying again. |
+| An Education checkout loses its response | Reuse the same key, product, price version, and storefront for a newly created checkout. If you have the order ID, check [Get Order Status](education.md#get-order-status). |
 | A live order's outcome is unknown | Check [Order History](endpoints.md#get-order-history) or Binance before resubmitting. Follow the operation's reconciliation and idempotency rules. |
 | A backtest result exceeds the response limit | Use [Get All Trades or Signals](endpoints.md#get-all-trades-or-signals) for available paginated records. See [Get Result](endpoints.md#get-result) for the result-size behavior. |
 | Education returns a stale-version error | Fetch the latest resource and review its changes before retrying with its current `ETag`. |
