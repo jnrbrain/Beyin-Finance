@@ -10,6 +10,7 @@ ENDPOINTS = (ROOT / "docs" / "endpoints.md").read_text(encoding="utf-8")
 PUBLISHED_FILES = (
     "README.md",
     "docs/index.rst",
+    "docs/operations.rst",
     "docs/quickstart.md",
     "docs/strategy-backtest.md",
     "docs/troubleshooting.md",

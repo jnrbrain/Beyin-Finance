@@ -12,6 +12,7 @@ API key.
   and select a result for publishing.
 * :doc:`troubleshooting` — Handle errors, throttling, and uncertain outcomes.
 * :doc:`endpoints` — Find request fields, response examples, and limits.
+* :doc:`operations` — Look up an operation by method or request path.
 * :doc:`education` — Browse the catalog and learn how student and instructor
   operations are authorized.
 
@@ -24,5 +25,6 @@ API key.
    strategy-backtest
    troubleshooting
    endpoints
+   operations
    education
    contributors

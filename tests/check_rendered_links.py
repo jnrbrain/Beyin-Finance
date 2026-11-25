@@ -1,3 +1,4 @@
+import json
 from html.parser import HTMLParser
 from pathlib import Path
 from urllib.parse import unquote, urlsplit
@@ -57,6 +58,28 @@ def main():
             fragment = unquote(target.fragment)
             if fragment and fragment not in target_document.ids:
                 failures.append(f"{name}: missing anchor {href}")
+
+    catalog = json.loads((build_dir / "operations.json").read_text(encoding="utf-8"))
+    operations = catalog["operations"]
+    operation_routes = {(operation["method"], operation["route"]) for operation in operations}
+    if len(operation_routes) != len(operations):
+        failures.append("operations.json: duplicate operation")
+    index = documents.get("operations.html")
+    if not index:
+        failures.append("operations.html: missing operation index")
+    else:
+        for operation in operations:
+            if operation["reference"] not in index.links:
+                failures.append(f"operations.json: link missing from index for {operation['route']}")
+    for example in (
+        ("GET", "/tradingdata?request_type=market_quote"),
+        ("POST", "/ai?request_type=ai_chat_history"),
+        ("POST", "/backtest?action=cancel"),
+        ("POST", "/user?request_type=marketplace_publish"),
+        ("POST", "/education/v1/checkouts"),
+    ):
+        if example not in operation_routes:
+            failures.append(f"operations.json: missing {example}")
 
     if failures:
         raise SystemExit("\n".join(failures))

@@ -1,6 +1,8 @@
 import os
 import sys
+from pathlib import Path
 sys.path.insert(0, os.path.abspath('..'))
+sys.path.insert(0, str(Path(__file__).parent / '_ext'))
 
 project = 'Beyin Finance API'
 author = 'Said Uludağ'
@@ -9,6 +11,7 @@ copyright = '2026, Beyin Finance'
 
 extensions = [
     'myst_parser',
+    'operation_index',
 ]
 
 myst_enable_extensions = [

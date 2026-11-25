@@ -3343,7 +3343,10 @@ When the server confirms a failure and refund, it returns
 {"cevap": "...", "veri": {"coin": "BTCUSDT", "market_ratings": []}}
 ```
 
-Chat history is available with `POST /ai?request_type=ai_chat_history&limit=50`.
+### AI Chat History
+
+`POST /ai?request_type=ai_chat_history&limit=50`
+
 The history response is `{"messages":[{"role":"user|assistant","content":"...","timestamp":1784900000}]}`;
 `limit` defaults to 50 and is capped at 100.
 
