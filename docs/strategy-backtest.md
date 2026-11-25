@@ -91,3 +91,33 @@ is being saved or is already available.
 Retain the returned `listing_id`. If the response is interrupted, retry within
 24 hours with the same key and inputs or check
 [My Listings](endpoints.md#my-listings) for the listing.
+
+## 5. Subscribe and receive a signal
+
+Switch to a second account with an active license. Open the public
+[listing detail](endpoints.md#listing-detail) and check `listed_coins` and
+`monthly_price_credits` before confirming the subscription. A publisher cannot
+subscribe to their own listing.
+
+Send [Subscribe](endpoints.md#subscribe) for the instruments the subscriber
+wants to follow. A successful subscription activates signal delivery for those
+coins and charges the first prepaid month at the listing price. A price of
+zero means the subscription is free.
+
+```json
+{"listing_id": "lst_abc123", "selected_coins": ["BTC"]}
+```
+
+Inspect `active_coins`, `credits_charged`, and `bindings_created`, then check
+[My Subscriptions](endpoints.md#my-subscriptions) for the saved subscription.
+When the strategy emits a signal, read [Active Signals](endpoints.md#active-signals)
+under the subscriber's credentials. An empty list is a valid result while the
+strategy is waiting for its entry conditions. Placing a trade requires a
+separate order action.
+
+The website's [workflow simulation](https://beyinfinance.com/developers#api-simulation)
+lets you compare a profitable single-asset or portfolio result with a completed
+loss, then follow the publisher and subscriber through a fictional listing.
+The [request playground](https://beyinfinance.com/developers#playground) uses
+local examples for the public operation index, including order and payment
+requests. Edits change the request preview. Responses are illustrative examples.

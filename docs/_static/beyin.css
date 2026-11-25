@@ -17,6 +17,7 @@
 }
 
 :root {
+  --bf-radius: 4px;
   --bf-primary: #f1b93e;
   --bf-primary-dark: #d4a017;
   --bf-primary-soft: #fff7e3;
@@ -100,7 +101,7 @@ html[data-bf-theme="dark"] {
   background: var(--bf-surface);
   color: var(--bf-link);
   border: 1px solid var(--bf-link);
-  border-radius: 8px;
+  border-radius: var(--bf-radius);
 }
 
 html,
@@ -217,7 +218,7 @@ body,
   height: 42px;
   background: var(--bf-surface);
   border: 1px solid rgba(241, 185, 62, 0.65);
-  border-radius: 8px;
+  border-radius: var(--bf-radius);
   box-shadow: none;
   color: var(--bf-text);
   font-size: 14px;
@@ -245,7 +246,7 @@ body,
   padding: 8px 12px;
   background: var(--bf-toggle-bg);
   border: 1px solid var(--bf-toggle-border);
-  border-radius: 8px;
+  border-radius: var(--bf-radius);
   color: var(--bf-toggle-color);
   cursor: pointer;
   font-size: 13px;
@@ -370,7 +371,7 @@ body,
   width: 26px;
   height: 26px;
   margin: 0;
-  border-radius: 5px;
+  border-radius: var(--bf-radius);
   color: var(--bf-sidebar-muted);
 }
 
@@ -516,7 +517,7 @@ body,
   border: 1px solid var(--bf-border);
   border-collapse: separate;
   border-spacing: 0;
-  border-radius: 8px;
+  border-radius: var(--bf-radius);
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
 }
 
@@ -561,7 +562,7 @@ code {
   background: var(--bf-primary-soft);
   border: 1px solid #f0d48d;
   color: #694800;
-  border-radius: 6px;
+  border-radius: var(--bf-radius);
   padding: 2px 6px;
   font-size: 0.88em;
   font-weight: 700;
@@ -578,7 +579,7 @@ html[data-bf-theme="dark"] .rst-content code.literal {
   margin: 12px 0 20px;
   background: var(--bf-code-bg);
   border: 1px solid #2e2e2e;
-  border-radius: 8px;
+  border-radius: var(--bf-radius);
   box-shadow: none;
 }
 
@@ -598,7 +599,7 @@ html[data-bf-theme="dark"] .rst-content code.literal {
   margin: 6px 8px 0 auto;
   padding: 1px 8px;
   border: 1px solid #636c76;
-  border-radius: 6px;
+  border-radius: var(--bf-radius);
   background: #21262d;
   color: #e6edf3;
   cursor: pointer;
@@ -621,7 +622,7 @@ html[data-bf-theme="dark"] .rst-content code.literal {
   overflow: hidden;
   background: var(--bf-surface);
   border: 1px solid #f0d48d;
-  border-radius: 8px;
+  border-radius: var(--bf-radius);
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
 }
 
@@ -683,7 +684,7 @@ html[data-bf-theme="dark"] .rst-content code.literal {
 
 .btn,
 .rst-content .btn {
-  border-radius: 8px;
+  border-radius: var(--bf-radius);
   box-shadow: none;
 }
 
@@ -771,7 +772,7 @@ footer a {
   padding: 18px;
   background: var(--bf-surface);
   border: 1px solid var(--bf-border);
-  border-radius: 12px;
+  border-radius: var(--bf-radius);
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
 }
 
@@ -828,7 +829,7 @@ footer a {
   padding: 6px 10px;
   background: var(--bf-primary-soft);
   border: 1px solid #f0d48d;
-  border-radius: 8px;
+  border-radius: var(--bf-radius);
   color: #694800;
   font-size: 13px;
   font-weight: 800;
