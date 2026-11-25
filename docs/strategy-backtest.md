@@ -53,7 +53,8 @@ if the result is intended for Marketplace publishing. For a specific date range,
 use [Run Specified Range Backtest](endpoints.md#run-specified-range-backtest) for
 one instrument or [Launch Portfolio Backtest](endpoints.md#launch-portfolio-backtest)
 for several. Follow the parameters for the selected action. The launch reserves
-1 credit per eligible instrument. Save the returned `job_id` before starting
+1 credit per eligible instrument. Send a unique `Idempotency-Key` and keep
+it with the request inputs. Save the returned `job_id` before starting
 status polling.
 
 ## 3. Track and recover a job
@@ -68,9 +69,9 @@ service asks you to wait.
 | `completed` | Stop polling and open [Get Result](endpoints.md#get-result). |
 | `failed`, `cancelled` | Stop polling. Keep the history entry and show the reason or refund information when returned. |
 
-If the page reloads or the launch response was lost, reopen
-[Backtest History](endpoints.md#backtest-history) to recover the job. Check for
-an accepted job before submitting another launch. Use
+If the launch response is lost, retry within 24 hours with the original key
+and inputs. If the key is unavailable, check
+[Backtest History](endpoints.md#backtest-history) before launching again. Use
 [Cancel a Backtest](endpoints.md#cancel-a-backtest) for a job you no longer need.
 On HTTP `409` during cancellation, refresh its status to see whether the result
 is being saved or is already available.
@@ -83,8 +84,10 @@ is being saved or is already available.
    result, omit `backtest_saved_revision` or send `0`. For a saved portfolio,
    send the exact `saved_revision` from the result and use its selected coins.
 3. Submit [Publish Strategy](endpoints.md#publish-strategy) with the result's
-   `job_id` as `backtest_job_id`. The API checks result and coin eligibility.
+   `job_id` as `backtest_job_id` and a fresh `Idempotency-Key`. The API checks
+   result and coin eligibility.
    If the result is stale, reopen it and confirm the selection before resubmitting.
 
-Retain the returned `listing_id`. If the response is interrupted, use
-[My Listings](endpoints.md#my-listings) to check whether it was published.
+Retain the returned `listing_id`. If the response is interrupted, retry within
+24 hours with the same key and inputs or check
+[My Listings](endpoints.md#my-listings) for the listing.

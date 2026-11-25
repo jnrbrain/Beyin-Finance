@@ -42,12 +42,20 @@ A missing or invalid credential returns HTTP 401 on authenticated routes.
 `/user` and `/backtest` operations require a tracked caller identity; selected
 `/tradingdata` and `/` routes are guest-accessible as marked below.
 
-:::{warning}
-Treat every Developer API key as capable of changing account state and placing
-or cancelling real Spot OCO orders on a linked Binance account with trading
-enabled. The `permissions` field is descriptive metadata. A key labeled `read`
-still has access to supported write operations.
-:::
+| Permission | Example operations |
+|------------|--------------------|
+| `read` | Account information, market data, strategy detail, backtest estimates and results, order previews |
+| `write` | Account settings, strategy or backtest cancellation, saving backtest allocations, publishing or removing a listing |
+| `credits` | Strategy generation and AI edits, backtest launches, paid subscriptions, AI chat |
+| `trade` | Placing and cancelling supported live Spot OCO orders on a linked Binance account |
+
+New keys always include `read`. The other permissions are independent and
+selected at creation. Older keys are read-only. Revoke and recreate a key to
+grant additional permissions. An operation denied for missing permission
+returns `403 insufficient_api_key_scope` with `required_scope`. Operations
+that require first-party authentication return `403 first_party_auth_required`
+when called with Developer API credentials. Send one authentication mode per
+request.
 
 For a Developer API request to `/backtest`, send the two API-key headers.
 Omit the app session headers `jwt_token` and `auth_type`.
@@ -983,7 +991,7 @@ cannot be retrieved afterward.
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `label` | string | Yes | Human-readable label for the key (1-64 characters) |
-| `permissions` | string[] | No | Descriptive metadata. Default: `["read", "trade"]`. Supported endpoints apply the same access rules regardless of this value. |
+| `permissions` | string[] | No | Default: `["read"]`. Optional permissions are `write`, `credits`, and `trade`. Every key includes `read`. |
 
 **Response:**
 ```json
@@ -991,7 +999,9 @@ cannot be retrieved afterward.
   "ok": true,
   "data": {
     "api_key": "<API_KEY>",
-    "api_secret": "<API_SECRET>"
+    "api_secret": "<API_SECRET>",
+    "scope_version": 1,
+    "permissions": ["read"]
   }
 }
 ```
@@ -1029,10 +1039,11 @@ request. The secret is never returned by this operation.
     "key": {
       "api_key": "<API_KEY>",
       "label": "Trading dashboard",
-      "permissions": ["read", "trade"],
+      "permissions": ["read"],
       "created_at": 1787098000
     },
-    "max_keys": 1
+    "max_keys": 1,
+    "scope_version": 1
   }
 }
 ```
@@ -1910,6 +1921,12 @@ drawdown.
 
 ### Backtest Launch Limits
 
+For `run`, `full_range`, and `portfolio`, send an `Idempotency-Key` header
+of 8–128 letters, digits, `.`, `_`, `:`, or `-`. For 24 hours, reusing the
+same key and launch inputs returns the original job with
+`Idempotent-Replayed: true`. Changing the action or inputs with the same key
+returns `409 idempotency_conflict`. Poll status for the job's current state.
+
 Backtest launch actions (`action=run`, `full_range`, or `portfolio`) can return
 HTTP 429 when the account's current launch limit has been reached. The response
 includes `current_running`, `max_concurrent`, and `retry_after`; these counts
@@ -2664,6 +2681,11 @@ page. Malformed cursors and non-integer page sizes return HTTP 400.
 ### Publish Strategy
 
 `POST /user?request_type=marketplace_publish`
+
+Send an `Idempotency-Key` header of 8–128 letters, digits, `.`, `_`, `:`, or
+`-` to cover a lost response. For 24 hours, a matching retry returns the
+original listing response with `Idempotent-Replayed: true`. Changed inputs
+with the same key return `409 idempotency_conflict`.
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
@@ -3781,6 +3803,8 @@ additional codes and the [troubleshooting guide](troubleshooting.md) for retry r
 |--------|---------|---------------|
 | `session_expired` | The session token itself was missing, invalid, or expired. | Clear the stored session and re-authenticate. |
 | `invalid_credentials` | The Developer API key or secret was rejected, incomplete, or revoked. | Check both headers and key status. Replace revoked or exposed credentials. |
+| `insufficient_api_key_scope` | The credential lacks the permission in `required_scope`. | Check your key's permissions. Issue a replacement with the required permission if authorized. |
+| `first_party_auth_required` | The operation is unavailable to Developer API credentials. | Use the official app or dashboard for that operation. |
 | `api_key_store_unavailable` | Credentials could not be evaluated because a required service was temporarily unavailable. Always paired with HTTP 503. | Retry with backoff. Do not rotate credentials and do not clear the session. |
 | `jwt_required` | A first-party `/backtest` request declared `auth_type=jwt` but did not carry a JWT header. | Wait for session readiness or sign in again; do not fall back to empty legacy credentials. |
 | `invalid_token` | The JWT supplied to the backtest surface is malformed, expired, or otherwise invalid. | Refresh the session when possible; otherwise clear it and sign in again. |

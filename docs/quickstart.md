@@ -24,16 +24,17 @@ See [Market Quote](endpoints.md#market-quote) for the full response.
    **Account → Settings → Developer API**.
 2. Create a credential. Save both values in your server's secret manager.
    The secret is displayed at creation. Use the values exactly as issued.
+   Start with the default `read` permission and enable any additional
+   [permissions](endpoints.md#authentication) your integration needs.
 3. Provide those values to the process running the example as `BF_API_KEY`
    and `BF_API_SECRET`.
 
 ```{warning}
 Keep the key and secret on a trusted server. Keep them out of frontend bundles,
 mobile apps you distribute, URLs, logs, screenshots, and support messages.
-A Developer API credential can perform supported account writes and exchange
-order operations when the account meets their requirements. The `permissions`
-label on a key does not enforce read-only access. Revoke a credential from
-account settings if it is exposed.
+Keys with `trade` can place or cancel supported orders on a linked exchange
+account. Grant that permission only to an integration you trust with live
+orders. Revoke a credential from account settings if it is exposed.
 ```
 
 ## Verify the credential
