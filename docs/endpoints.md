@@ -4,58 +4,53 @@
 
 All endpoints in this reference are relative to this base URL (for example,
 `POST https://api.beyinfinance.com/user?request_type=account_info`).
+Sample market prices, strategy metrics, and identifiers are illustrative.
+Replace placeholders such as `<BEYIN_ID>` with the corresponding value from
+your own authorized request or response.
 
 ---
 
 ## Authentication
 
-Use the Developer API credential pair on authenticated endpoint operations that
-support integrator authentication. Authentication is endpoint-specific; this
-pair is not a replacement for first-party sessions or provider webhook proofs.
+Use the Developer API credential pair on operations that support integrator
+authentication.
 
 | Request surface | Authentication |
 |--------|----------------|
 | Supported authenticated REST operations on `/user`, `/tradingdata`, `/backtest`, and `/ai` | `X-API-Key` + `X-API-Secret` |
 | Guest-read routes explicitly marked below | No credential required |
-| JWT-only, payment-provider, webhook, Education-internal, and WebSocket flows | Their endpoint-specific credential; Developer API keys do not replace it |
+| First-party session operations, including manual signal entry and API key creation and revocation | First-party session |
+| [Education](education.md#authentication) | Guest or first-party Bearer session, depending on the operation |
 
-This does **not** mean one Developer API key works on every route in the API.
-Use it only on operations documented as accepting integrator authentication:
-the supported operations under `/user` and `/tradingdata`, plus `/backtest`
-and `/ai`. `/user` has request-type-specific exceptions; key creation/revocation
-and session administration require a first-party session (key status accepts
-the current key), and login,
-registration, deletion, payment callbacks, Education-internal operations, and
-the community WebSocket use their own authentication flow. A public guest route
-does not need an API key, but if you send a key pair and it is invalid the API
-returns 401 instead of silently treating the request as a guest.
+On guest routes, omit both credential headers. Sending an invalid pair returns
+HTTP 401. Follow the authentication requirements of each operation.
 
 **Developer API-key example:**
 
-```
-X-API-Key: bf_key_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
-X-API-Secret: bf_sec_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+```text
+X-API-Key: <API_KEY>
+X-API-Secret: <API_SECRET>
 Content-Type: application/json
 ```
 
-Generate API keys from the web dashboard or mobile app.
+Generate an API key from the web dashboard or mobile app. Use the secret exactly
+as issued. Keep it in a server-side secret store or local development environment.
+Keep it out of browser bundles, mobile builds, URLs, source control, and logs.
+Revoke and replace the key if its secret is exposed.
 
 A missing or invalid credential returns HTTP 401 on authenticated routes.
 `/user` and `/backtest` operations require a tracked caller identity; selected
 `/tradingdata` and `/` routes are guest-accessible as marked below.
-Developer API-key `permissions` values are metadata today; route access is
-determined by the endpoint's authentication rules, not by that field.
 
-Developer API keys work only where the operation accepts integrator
-authentication. They do not authorize first-party login/registration, JWT-only
-administrative or session actions, payment receipts and provider callbacks, or
-the community WebSocket connection flow. `/user` request types retain their
-individual auth requirements; follow the endpoint-specific notes below.
+:::{warning}
+Treat every Developer API key as capable of changing account state and placing
+or cancelling real Spot OCO orders on a linked Binance account with trading
+enabled. The `permissions` field is descriptive metadata. A key labeled `read`
+still has access to supported write operations.
+:::
 
-For a Developer API request to `/backtest`, send the two API-key headers without
-the first-party `jwt_token` or `auth_type: jwt` headers. The mobile app uses JWT
-for its backtest flow. A `session_revoked` response means that app session is no
-longer active; an invalid Developer API key uses `invalid_credentials`.
+For a Developer API request to `/backtest`, send the two API-key headers.
+Omit the app session headers `jwt_token` and `auth_type`.
 
 ### Binance request routing
 
@@ -189,8 +184,8 @@ Payment behavior depends on the channel:
   the relevant store. Store renewals extend the plan without a new Shopier
   order.
 
-Every purchase must be tied to your account by your **6-character Beyin ID**
-(for example `MTHG7A`), which you can find in your profile / account info.
+Find your **6-character Beyin ID** in your profile or account info. Purchases
+use it to associate your payment with your account.
 
 #### Card payment — Shopier
 
@@ -239,7 +234,8 @@ In the iOS and Android apps, plan purchases are store-managed subscriptions:
 - Read `X-RateLimit-Remaining` from every response
 - If `Remaining` < 5, slow down or delay requests
 - On 429, wait `Retry-After` seconds before retrying
-- Cache responses when possible (e.g. `account_info`, `available_coins`)
+- Cache public market and platform data where appropriate. Keep authenticated
+  account data out of shared caches.
 
 ### Backtest Job Status Response Schema
 
@@ -261,8 +257,9 @@ In the iOS and Android apps, plan purchases are store-managed subscriptions:
 }
 ```
 
-When a request exceeds the current limit, the API returns HTTP 429 with a
-`Retry-After` header:
+When the account's request rate is exceeded, the API returns HTTP 429 with a
+`Retry-After` header. A backtest launch can also return 429 for an active-job or
+service capacity limit.
 
 **Rate Limit Response (HTTP 429):**
 ```json
@@ -276,8 +273,7 @@ When a request exceeds the current limit, the API returns HTTP 429 with a
 **Service Temporarily Unavailable (HTTP 503):**
 
 When a required service is temporarily unavailable, a request may return HTTP
-503. Use the response's retry delay and the normal idempotency guidance for
-state-changing requests:
+503. Some responses include a retry delay:
 
 ```json
 {
@@ -304,8 +300,12 @@ state-changing requests:
   now. Retry after the indicated delay.
 
 **Recommended Handling:**
-Inspect the `Retry-After` header (or the `retry_after` JSON field, in seconds)
-and apply exponential backoff with random jitter before retrying.
+For retryable requests, wait at least the `Retry-After` value or the
+`retry_after` JSON value when supplied. Use exponential backoff with jitter
+when the response gives no delay. For a write whose outcome is unclear, reuse
+the original idempotency key only where the endpoint documents this support.
+Otherwise, check the relevant account or job state before submitting again.
+`X-Correlation-ID` traces requests and does not deduplicate them.
 
 > These `reason` codes and the `Retry-After` / `retry_after` contract apply to
 > the request-facing REST endpoints (the User API and backtest API). Real-time
@@ -327,7 +327,7 @@ No body required.
 {
   "ok": true,
   "data": {
-    "beyin_id": "MTHG7A",
+    "beyin_id": "<BEYIN_ID>",
     "plan": "pro",
     "beyin_credits": 7.35,
     "license_expires_at": 1790000000,
@@ -616,7 +616,8 @@ confirmation before calling `binance_order`.
 
 `POST /user?request_type=binance_order`
 
-Places a Spot OCO (One-Cancels-Other) exit on Binance for an existing long
+Accepts Developer API credentials. This operation places a real Spot OCO
+(One-Cancels-Other) exit on Binance for an existing long
 balance. The TP leg is a `LIMIT_MAKER` sell. The SL leg is a `STOP_LOSS`
 market sell: `stop_loss_price` triggers the sale, but the final fill price is
 not guaranteed and may be lower during fast markets. Binance cancels the other
@@ -748,8 +749,9 @@ duplicate. Refresh `order_history` before taking another action.
 
 `POST /user?request_type=binance_order_cancel`
 
-Cancels an active Spot OCO order that belongs to the authenticated account. The
-API verifies the `order_history_id` against Beyin Finance's stored order record,
+Accepts Developer API credentials. Cancels a real, active Spot OCO order that
+belongs to the authenticated account. The API verifies the `order_history_id`
+against Beyin Finance's stored order record,
 checks the current Binance order-list state, and then requests cancellation.
 If a TP or SL leg completes first, the API reports that the order is already
 closed instead of claiming it was cancelled. A timeout is reconciled against
@@ -914,8 +916,8 @@ Sets the 6-character Beyin ID of the user who invited the caller. This endpoint 
 - Must be a valid 6-character alphanumeric code (`^[A-Z0-9]{6}$`).
 - Cannot be the caller's own Beyin ID.
 - Cannot be changed once set.
-- Must be submitted within 30 days of the user's registration timestamp (`registered_at`).
-- The inviter Beyin ID must exist in the system.
+- Submit within 30 days of registration.
+- The inviter Beyin ID must belong to an active account. An unavailable ID returns HTTP 404.
 
 **Response:**
 ```json
@@ -965,10 +967,11 @@ Adds or removes a cryptocurrency trading pair from the user's synced favorites l
 
 ## Developer API Key Management
 
-Manage your Developer API key. Each user may have **1 active** Developer API
-key at a time — to replace it, revoke the existing key and generate a new one.
-Generating and revoking a key require JWT authentication. Status can be read by
-the authenticated owner; a Developer API key may only retrieve its own status.
+The dashboard is designed for one active Developer API key per account.
+To replace it, revoke the current key, check its status, then create a new
+one. Pause requests that use the old key before rotating it.
+Generating and revoking a key require a first-party session. The owner can read
+key status with a first-party session or their Developer API key.
 
 ### Generate API Key
 
@@ -980,30 +983,33 @@ cannot be retrieved afterward.
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `label` | string | Yes | Human-readable label for the key (1-64 characters) |
-| `permissions` | string[] | No | Stored metadata only; it does not restrict endpoint access. Default: `["read", "trade"]`. Do not use this field as an access-control boundary. |
+| `permissions` | string[] | No | Descriptive metadata. Default: `["read", "trade"]`. Supported endpoints apply the same access rules regardless of this value. |
 
 **Response:**
 ```json
 {
   "ok": true,
   "data": {
-    "api_key": "bf_key_a1b2c3d4e5f6a1b2c3d4e5f6",
-    "api_secret": "bf_sec_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    "api_key": "<API_KEY>",
+    "api_secret": "<API_SECRET>"
   }
 }
 ```
 
 :::{warning}
-The `api_secret` is shown once only — store it securely. It is not retrievable
-afterward.
+Copy `api_secret` to a secure store when the response arrives. The status
+operation never returns the secret. If the creation response is lost, check
+key status from your signed-in account before attempting another creation.
+If a key exists and you did not receive its secret, revoke it before creating
+a replacement.
 :::
 
 **Errors:**
 - 400: "Label must be 1-64 characters"
 - 400: "Maximum 1 API key allowed. Delete your existing key first."
 - 403: "api_key_generate requires JWT authentication"
-- 503: Temporary service unavailability (`"code": "api_key_store_unavailable"`). No key
-  was created and no secret was issued; retry the request.
+- 503: Temporary service unavailability (`"code": "api_key_store_unavailable"`).
+  Check key status once the service is reachable before retrying creation.
 
 ### Get API Key Status
 
@@ -1021,7 +1027,7 @@ request. The secret is never returned by this operation.
   "data": {
     "has_key": true,
     "key": {
-      "api_key": "bf_key_a1b2c3d4e5f6a1b2c3d4e5f6",
+      "api_key": "<API_KEY>",
       "label": "Trading dashboard",
       "permissions": ["read", "trade"],
       "created_at": 1787098000
@@ -1041,9 +1047,8 @@ When no key exists, `has_key` is `false` and `key` is `null`.
 
 `POST /user?request_type=api_key_revoke`
 
-Revokes your Developer API key. The key record is deleted permanently and
-immediately frees your key slot so you can generate a replacement.
-Revocation cannot be undone — issue a new key with `api_key_generate`.
+Revokes your Developer API key. Allow for a brief delay before the change is
+visible across endpoints and in key status. A revoked key cannot be recovered.
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
@@ -1058,18 +1063,19 @@ Revocation cannot be undone — issue a new key with `api_key_generate`.
 - 400: "api_key_id required"
 - 403: "api_key_revoke requires JWT authentication"
 - 403: "Key not found or not owned by user"
-- 503: Temporary service unavailability (`"code": "api_key_store_unavailable"`). The key
-  was not deleted and still authenticates; retry the request.
+- 503: Temporary service unavailability (`"code": "api_key_store_unavailable"`).
+  Check key status from your signed-in account once the service is reachable.
+  Retry revocation if the key remains active.
 
 ### Authentication Flow (Developer API Keys)
 
-API consumers authenticate by sending both the `X-API-Key` and `X-API-Secret`
-headers on every request. The observable behavior is:
+Send both `X-API-Key` and `X-API-Secret` on requests to operations that support
+Developer API credentials. The observable behavior is:
 
 1. Valid key and secret: the request is authenticated and processed.
-2. Missing, unknown, or revoked credentials: HTTP 401 with
-   `"code": "invalid_credentials"`. Revoked keys stop authenticating
-   immediately.
+2. An incomplete pair, unknown key, incorrect secret, or fully revoked key:
+   HTTP 401 with `"code": "invalid_credentials"`. Omitting both headers uses the
+   operation's ordinary guest or authentication rules.
 3. Credentials could not be evaluated because the service is temporarily
    unavailable: HTTP 503 with `"code": "api_key_store_unavailable"`. Your
    credentials were never checked, so this is not a reason to rotate them —
@@ -1078,9 +1084,6 @@ headers on every request. The observable behavior is:
 A rejected or revoked Developer API key never silently downgrades to guest
 access. The same 503 applies on `/tradingdata` when `X-API-Key` /
 `X-API-Secret` are supplied: an unavailable key store is reported as an outage.
-
-**Limits:** 1 Developer API key per user. Revoking your key frees the slot
-immediately so you can issue a replacement.
 
 ---
 
@@ -1542,19 +1545,24 @@ request cannot be completed safely, no user-visible strategy data is removed.
 - 409: active marketplace listing must be unpublished first
 - 503: the deletion could not be completed safely; nothing was deleted
 
+### Cancel Strategy Generation
+
+`POST /user?request_type=strategy_cancel` with `{"strategy_name":"..."}` cancels
+the caller's current generation, returns its reserved credit once, and keeps
+the strategy visible as `cancelled`. Cancel an active generation before
+deleting the strategy.
+
 ---
 
 ## Backtest
 
 **Endpoint:** `POST /backtest?action=<action>`
 
-The first-party mobile client sends `auth_type: jwt` with a `jwt_token` header
-and performs a local readiness/refresh check before estimate, launch, status,
-and result calls. Public developer clients remain backward compatible: callers
-that omit `auth_type` may use the legacy `beyin_id` + `beyin_password` flow or
-the documented API-key flow. A first-party request that declares JWT auth but
-omits the token receives `401 {"code": "jwt_required"}` rather than entering
-the legacy empty-credential branch.
+For developer integrations, send `X-API-Key` and `X-API-Secret` as described in
+[Authentication](#authentication). The first-party app uses its own session.
+If a paid launch times out or loses its response, check
+[Backtest History](#backtest-history) before submitting again. Retrying the
+launch can create another job and charge credits again.
 
 **Backtest selection:** First choose the execution market and strategy, then
 select one or more instruments. There is no user-facing single/portfolio mode.
@@ -1884,11 +1892,13 @@ coin), `trades` (coin-tagged, first 500, `trades_truncated` flag) and
 `recommended_divide`:
 
 ```json
-"recommended_divide": {
-  "divide": 3, "final_balance": 214.2, "total_return_pct": 114.2,
-  "max_drawdown_pct": 18.3, "max_concurrent_signals": 9,
-  "candidates": [{"divide": 1, "total_return_pct": 80.1, "max_drawdown_pct": 31.0, "final_balance": 180.1, "total_trades": 42, "skipped_no_slot": 12}],
-  "method": "return_dd_score"
+{
+  "recommended_divide": {
+    "divide": 3, "final_balance": 214.2, "total_return_pct": 114.2,
+    "max_drawdown_pct": 18.3, "max_concurrent_signals": 9,
+    "candidates": [{"divide": 1, "total_return_pct": 80.1, "max_drawdown_pct": 31.0, "final_balance": 180.1, "total_trades": 42, "skipped_no_slot": 12}],
+    "method": "return_dd_score"
+  }
 }
 ```
 
@@ -1906,8 +1916,8 @@ includes `current_running`, `max_concurrent`, and `retry_after`; these counts
 describe that account's current request state and are not a platform-wide
 throughput guarantee. Follow `Retry-After` before submitting another launch.
 
-When you exceed it, the launch is rejected with HTTP 429 and
-`reason: "backtest_concurrency_limit"`:
+When you exceed it, the launch is rejected with HTTP 429,
+`reason: "backtest_concurrency_limit"`, and a `Retry-After` header:
 
 ```json
 {
@@ -1938,8 +1948,8 @@ credit charge:
 }
 ```
 
-A `Retry-After` header accompanies the response. Jobs already accepted remain
-available through the documented status and result actions. Accepted launches
+Reduce the workload before retrying a 422 response. Jobs already accepted
+remain available through the documented status and result actions. Accepted launches
 keep returning `"status": "dispatched"` as before. See the
 [Common `reason` codes](#common-reason-codes) table for the full contract and
 the related `backtest_capacity_exceeded` and `strategy_generation_in_progress`
@@ -1984,9 +1994,18 @@ The full reserved job cost is returned at most once. If any expected data
 section cannot be completed or is permanently missing, the job is marked failed
 and refunded rather than combining an incomplete set into a backtest result.
 
-Status values: `queued`, `running`, `scanning`, `completed`, `failed`. The
+Status values: `queued`, `running`, `scanning`, `merging`, `completed`, `failed`,
+and `cancelled`. A job is `merging` while its final result is being saved.
+`backtest_history` includes active and terminal jobs. The
 per-coin status map and active/queued coin lists let clients explain progress
 when a multi-coin job is waiting for earlier coins to finish.
+
+### Cancel a Backtest
+
+`POST /backtest?action=cancel` with `{"job_id":"..."}` stops the caller's job and
+releases its slot. The job remains in history as `cancelled`, and its reserved
+credits are refunded at most once. HTTP 409 means the result is being saved or
+is already available. Refresh the status before retrying.
 
 ### Get Result
 
@@ -1998,6 +2017,8 @@ when a multi-coin job is waiting for earlier coins to finish.
 | `result_view` | string | `saved` | `saved` returns the authenticated caller's saved replay view when one exists. `immutable` returns the original result. `marketplace` returns a verified saved main portfolio aggregate when available, while retaining original full-range proof and per-coin outcomes; otherwise it returns the original. For portfolio jobs, `range_mode` is projected from the immutable manifest; the stored result is not rewritten. |
 
 Marketplace selectors use `{"job_id": "...", "result_view": "marketplace"}`. If the caller has a source-ETag-valid saved portfolio, the response marks `marketplace_view` as `saved_portfolio`, includes `saved_revision`, and returns its server-calculated aggregate while preserving the original range proof and per-coin outcomes. Otherwise it marks the view as `original`. The request remains read-only and authenticated: the job is resolved only under the current caller's storage prefix. Unknown values return HTTP 400; stale saved data returns HTTP 409.
+
+For large results, `history_paginated: true` indicates that the response omitted `all_positions` to fit the download limit. Use `result_trades` to page through trades or signals. If the remaining response still exceeds the limit, the API returns HTTP 413 with code `backtest_response_too_large`.
 
 Portfolio results always have effective timestamp bounds, including full-history
 runs; non-empty `filtered_range` timestamps therefore do not prove a custom
@@ -2299,7 +2320,7 @@ non-integer page sizes return HTTP 400.
 
 **Response:**
 ```json
-{"ok": true, "data": {"signals": [{"position_key": "emacross#BTC#1784850000", "coin": "BTC", "strategy_name": "emacross", "owner": "MTHG7A", "side": "LONG", "signal_mode": "signal_orders", "entry_price": "67234.50", "limit_price": "69500.00", "stop_price": "65800.00", "source": "user", "created_at": 1784850000, "is_active": true, "entry_status": "", "last_entered_at": 0}], "count": 1, "last_evaluated_key": "base64...", "has_more": true}}
+{"ok": true, "data": {"signals": [{"position_key": "emacross#BTC#1784850000", "coin": "BTC", "strategy_name": "emacross", "owner": "<BEYIN_ID>", "side": "LONG", "signal_mode": "signal_orders", "entry_price": "67234.50", "limit_price": "69500.00", "stop_price": "65800.00", "source": "user", "created_at": 1784850000, "is_active": true, "entry_status": "", "last_entered_at": 0}], "count": 1, "last_evaluated_key": "base64...", "has_more": true}}
 ```
 
 Return the opaque cursor unchanged. Malformed cursors and non-integer page
@@ -2336,6 +2357,9 @@ differ from the exchange fill. The balance check includes a 0.2% fee buffer.
 ### Submit a Manually Approved Signal Entry
 
 `POST /user?request_type=signal_entry_submit`
+
+Requires a valid first-party app JWT. Developer API credentials cannot
+authenticate this operation.
 
 The client must show the preview and obtain a separate explicit user
 confirmation before calling this endpoint. It submits one Spot `BUY MARKET`
@@ -3339,7 +3363,7 @@ This is a technical rating feed, not a trade execution endpoint.
 
 **Response:**
 ```json
-{"ok": true, "data": {"msg_id": "1784990000_MTHG7A", "sort_key": "1784990000#1784990000_MTHG7A", "channel": "global"}}
+{"ok": true, "data": {"msg_id": "1784990000_<BEYIN_ID>", "sort_key": "1784990000#1784990000_<BEYIN_ID>", "channel": "global"}}
 ```
 
 ### Global Chat - History
@@ -3358,7 +3382,7 @@ query parameter for the next page.
 
 **Response:**
 ```json
-{"messages": [{"beyin_id": "MTHG7A", "message": "BTC looking bullish!", "created_at": "1784990000", "sort_key": "..."}], "count": 50, "has_more": true, "next_cursor": "1784980000#..."}
+{"messages": [{"beyin_id": "<BEYIN_ID>", "message": "BTC looking bullish!", "created_at": "1784990000", "sort_key": "..."}], "count": 50, "has_more": true, "next_cursor": "1784980000#..."}
 ```
 
 Pass `next_cursor` back as `cursor` to request the next page.
@@ -3386,7 +3410,7 @@ stay intact.
 
 **Response:**
 ```json
-{"ok": true, "data": {"sort_key": "1784990000#1784990000_MTHG7A", "deleted": true, "deleted_by_author": true}, "timestamp": 1784990100}
+{"ok": true, "data": {"sort_key": "1784990000#1784990000_<BEYIN_ID>", "deleted": true, "deleted_by_author": true}, "timestamp": 1784990100}
 ```
 
 | Status | Code | Meaning |
@@ -3412,7 +3436,7 @@ Only users with `community_role: "leader"` can create posts.
 
 **Response:**
 ```json
-{"ok": true, "data": {"post_id": "post_MTHG7A_1784990000"}}
+{"ok": true, "data": {"post_id": "post_<BEYIN_ID>_1784990000"}}
 ```
 
 Followers are automatically notified through their configured channels.
@@ -3434,7 +3458,7 @@ pages instead of loading the entire community feed at once.
 
 **Response:**
 ```json
-{"posts": [{"post_id": "...", "author_id": "MTHG7A", "title": "BTC Analysis", "content": "...", "image_url": "", "like_count": "12", "comment_count": "3", "created_at": "1784990000"}], "count": 20, "has_more": true, "next_cursor": "eyJwb3N0X2lkIjp7IlMiOiIuLi4ifX0="}
+{"posts": [{"post_id": "...", "author_id": "<BEYIN_ID>", "title": "BTC Analysis", "content": "...", "image_url": "", "like_count": "12", "comment_count": "3", "created_at": "1784990000"}], "count": 20, "has_more": true, "next_cursor": "eyJwb3N0X2lkIjp7IlMiOiIuLi4ifX0="}
 ```
 
 The cursor is opaque and must be sent back unchanged. Malformed cursors return
@@ -3513,7 +3537,7 @@ for the next page; a malformed cursor returns HTTP 400.
 
 **Response:**
 ```json
-{"ok": true, "data": {"post_id": "...", "comment_id": "comment_MTHG7A_1784990000", "action": "commented"}}
+{"ok": true, "data": {"post_id": "...", "comment_id": "comment_<BEYIN_ID>_1784990000", "action": "commented"}}
 ```
 
 ### Report Content
@@ -3543,7 +3567,7 @@ for the next page; a malformed cursor returns HTTP 400.
 
 **Response:**
 ```json
-{"ok": true, "data": {"leader_id": "MTHG7A", "action": "followed"}}
+{"ok": true, "data": {"leader_id": "<BEYIN_ID>", "action": "followed"}}
 ```
 
 ### Unfollow Leader
@@ -3556,7 +3580,7 @@ for the next page; a malformed cursor returns HTTP 400.
 
 **Response:**
 ```json
-{"ok": true, "data": {"leader_id": "MTHG7A", "action": "unfollowed"}}
+{"ok": true, "data": {"leader_id": "<BEYIN_ID>", "action": "unfollowed"}}
 ```
 
 ### List Leaders
@@ -3575,7 +3599,7 @@ authentication.
 
 **Response:**
 ```json
-{"leaders": [{"beyin_id": "MTHG7A", "name": "CryptoTrader", "bio": "Full-time crypto analyst", "is_following": false}], "count": 1, "next_cursor": "base64...", "has_more": true}
+{"leaders": [{"beyin_id": "<BEYIN_ID>", "name": "CryptoTrader", "bio": "Full-time crypto analyst", "is_following": false}], "count": 1, "next_cursor": "base64...", "has_more": true}
 ```
 
 Return the opaque cursor unchanged; malformed cursors return HTTP 400.
@@ -3592,7 +3616,7 @@ accounts remain visible if their leader role changes.
 ```json
 {
   "following": [{
-    "beyin_id": "MTHG7A",
+    "beyin_id": "<BEYIN_ID>",
     "name": "CryptoTrader",
     "nickname": "cryptotrader",
     "bio": "Market educator",
@@ -3720,7 +3744,7 @@ Only accessible by users with approved `"leader"` community role.
 
 ## Errors
 
-All errors return:
+User, Trading Data, and Backtest API errors commonly include a message:
 ```json
 {"error": "Descriptive error message"}
 ```
@@ -3738,8 +3762,10 @@ The rest of the body shape is unchanged:
 | 402 | Insufficient credits |
 | 403 | Forbidden / license expired |
 | 404 | Not found |
-| 405 | Invalid request_type |
+| 405 | Operation or method not supported |
 | 409 | Conflict (duplicate) |
+| 413 | Response exceeds the download limit where documented |
+| 422 | Request violates an operation-specific rule |
 | 429 | Rate limited |
 | 500 | Server error |
 | 502 | Upstream exchange did not return a usable response |
@@ -3747,13 +3773,14 @@ The rest of the body shape is unchanged:
 
 ### Error `code` markers
 
-`code` is optional. When present it identifies the class of authentication
-failure so clients can react without parsing the message text.
+When provided, `code` identifies a failure without requiring clients to parse
+the message. The table below covers authentication. Check each operation for
+additional codes and the [troubleshooting guide](troubleshooting.md) for retry rules.
 
 | `code` | Meaning | Client action |
 |--------|---------|---------------|
 | `session_expired` | The session token itself was missing, invalid, or expired. | Clear the stored session and re-authenticate. |
-| `invalid_credentials` | The Developer API key/secret was rejected or has been revoked. | Issue new API credentials. |
+| `invalid_credentials` | The Developer API key or secret was rejected, incomplete, or revoked. | Check both headers and key status. Replace revoked or exposed credentials. |
 | `api_key_store_unavailable` | Credentials could not be evaluated because a required service was temporarily unavailable. Always paired with HTTP 503. | Retry with backoff. Do not rotate credentials and do not clear the session. |
 | `jwt_required` | A first-party `/backtest` request declared `auth_type=jwt` but did not carry a JWT header. | Wait for session readiness or sign in again; do not fall back to empty legacy credentials. |
 | `invalid_token` | The JWT supplied to the backtest surface is malformed, expired, or otherwise invalid. | Refresh the session when possible; otherwise clear it and sign in again. |
@@ -3776,27 +3803,15 @@ unauthenticated caller on `/user` and `/tradingdata`. The dedicated
 {"error": "token_expired", "code": "session_expired", "message": "Your session has expired. Please log in again."}
 ```
 
-**Clients must clear the local session and re-authenticate only when a 401
-carries `"code": "session_expired"`.** A 401 without a `code` field is a
-business error, not a session problem, and must not sign the user out.
+For `/user` and `/tradingdata`, use `401 session_expired` as the signal to renew
+or re-establish an app session. Other surfaces have their own session error
+codes. A bare HTTP 401 is insufficient to decide whether to discard a session.
 
 ### Account linking and login status codes
 
-These conditions previously returned HTTP 401. They now return a
-condition-specific status, so a client no longer mistakes them for an expired
-session:
-
-| Condition | Status |
-|------|---------|
-| Binance API key or secret is not exactly 64 characters, on the credential-**linking** path (`"Invalid API or Secret key"`) | 400 |
-| Binance API key or secret is not exactly 64 characters, on the **login** path (`"Invalid API or Secret key"`) | 401 |
-| Binance returned no account ID while linking (`"Could not retrieve Binance ID from API"`) | 502 |
-| Login with a Binance identity that is not registered (`"Binance ID not found!"`) | 400 |
-| Login where the supplied Google identity does not match the stored one (`"Google ID mismatch!"`) | 409 |
-
-None of these responses carry a `code` marker. In particular, the 401 on the
-login path above is a business error, **not** a `session_expired` — clients must
-follow the rule above and only sign out on `"code": "session_expired"`.
+Manage sign-in and account linking in the Beyin Finance app or dashboard.
+For a Developer API integration, use [Authentication](#authentication) and
+[Verify authentication](troubleshooting.md#verify-authentication).
 
 
 ### Backtest estimate modes

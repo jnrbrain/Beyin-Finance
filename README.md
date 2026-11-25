@@ -2,6 +2,11 @@
 
 Public API documentation for [Beyin Finance](https://beyinfinance.com) trading platform.
 
+Start with the [Quickstart](docs/quickstart.md). The
+[strategy, backtest, and publishing guide](docs/strategy-backtest.md) covers
+progress and recovery. See [Troubleshooting](docs/troubleshooting.md) for
+authentication errors, rate limits, and uncertain request outcomes.
+
 ## Endpoints
 
 | Route | Purpose |
@@ -24,10 +29,12 @@ interface. The secret is shown only when a credential is created.
 ## Build the documentation locally
 
 ```bash
-pip install -r docs/requirements.txt
-cd docs && make html
+python -m pip install -r docs/requirements.txt
+python -m unittest discover -s tests
+python -m sphinx -E -W --keep-going -b html docs _build/html
+python tests/check_rendered_links.py _build/html
 ```
 
 ## Hosted Docs
 
-Deployed via ReadTheDocs at the configured URL.
+The published reference is at [docs.beyinfinance.com](https://docs.beyinfinance.com).

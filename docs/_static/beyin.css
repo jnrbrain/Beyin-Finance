@@ -1,4 +1,20 @@
-@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap");
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("inter-latin-ext.woff2") format("woff2");
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("inter-latin.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0303-0304, U+0308-0309, U+0323, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
 
 :root {
   --bf-primary: #f1b93e;
@@ -6,7 +22,7 @@
   --bf-primary-soft: #fff7e3;
   --bf-text: #171717;
   --bf-text-secondary: #5c5c5c;
-  --bf-text-muted: #999999;
+  --bf-link: #765300;
   --bf-bg: #fafafa;
   --bf-surface: #ffffff;
   --bf-surface-elevated: #f0f0f0;
@@ -28,13 +44,14 @@
   --bf-toggle-hover-color: #171717;
   --bf-green: #22c55e;
   --bf-red: #ef4444;
-  --bf-code-bg: #121212;
+  --bf-code-bg: #0d1117;
+  color-scheme: light;
 }
 
 html[data-bf-theme="dark"] {
   --bf-text: #f5f5f5;
   --bf-text-secondary: #a0a0a0;
-  --bf-text-muted: #666666;
+  --bf-link: #ffd36a;
   --bf-bg: #121212;
   --bf-surface: #1e1e1e;
   --bf-surface-elevated: #2a2a2a;
@@ -55,7 +72,35 @@ html[data-bf-theme="dark"] {
   --bf-toggle-color: #f1b93e;
   --bf-toggle-hover-bg: rgba(241, 185, 62, 0.2);
   --bf-toggle-hover-color: #ffffff;
-  --bf-code-bg: #050505;
+  color-scheme: dark;
+}
+
+:where(a, button, input, [tabindex]):focus-visible {
+  outline: 2px solid var(--bf-link);
+  outline-offset: 2px;
+}
+
+.bf-visually-hidden,
+.bf-skip-link:not(:focus) {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.bf-skip-link:focus {
+  position: fixed;
+  top: 8px;
+  left: 8px;
+  z-index: 300;
+  padding: 10px 14px;
+  background: var(--bf-surface);
+  color: var(--bf-link);
+  border: 1px solid var(--bf-link);
+  border-radius: 8px;
 }
 
 html,
@@ -109,6 +154,7 @@ body,
 }
 
 .wy-side-nav-search {
+  width: 300px;
   background: var(--bf-sidebar);
   border-bottom: 1px solid var(--bf-sidebar-border);
   padding: 24px 18px 18px;
@@ -164,17 +210,21 @@ body,
 
 .wy-side-nav-search > a:hover,
 .wy-side-nav-search .wy-dropdown > a:hover {
-  color: var(--bf-primary);
+  color: var(--bf-link);
 }
 
 .wy-side-nav-search input[type="text"] {
   height: 42px;
-  background: #ffffff;
+  background: var(--bf-surface);
   border: 1px solid rgba(241, 185, 62, 0.65);
   border-radius: 8px;
   box-shadow: none;
   color: var(--bf-text);
   font-size: 14px;
+}
+
+.wy-side-nav-search input[type="text"]::placeholder {
+  color: var(--bf-text-secondary);
 }
 
 .bf-theme-toggle {
@@ -209,7 +259,7 @@ body,
 
 .wy-menu-vertical header,
 .wy-menu-vertical p.caption {
-  color: var(--bf-primary);
+  color: var(--bf-link);
   font-size: 12px;
   font-weight: 800;
   letter-spacing: 0.7px;
@@ -224,6 +274,13 @@ body,
 .wy-menu-vertical a:hover {
   background: var(--bf-sidebar-hover);
   color: var(--bf-sidebar-text);
+}
+
+.wy-menu-vertical a:focus-visible,
+.wy-side-nav-search a:focus-visible,
+.wy-side-nav-search input:focus-visible {
+  outline: 2px solid var(--bf-link);
+  outline-offset: -2px;
 }
 
 .wy-menu-vertical li.current {
@@ -287,52 +344,48 @@ body,
   color: var(--bf-sidebar-text) !important;
 }
 
-.wy-menu-vertical li .toctree-expand,
-.wy-menu-vertical li button.toctree-expand,
-.wy-menu-vertical li span.toctree-expand,
-.wy-menu-vertical li i.toctree-expand,
-.wy-menu-vertical li a .toctree-expand {
-  color: var(--bf-sidebar-muted) !important;
+.wy-menu-vertical li.bf-nav-branch {
+  position: relative;
+  --bf-nav-indent: 16px;
 }
 
-.wy-menu-vertical li .toctree-expand:before,
-.wy-menu-vertical li button.toctree-expand:before,
-.wy-menu-vertical li span.toctree-expand:before,
-.wy-menu-vertical li i.toctree-expand:before,
-.wy-menu-vertical li a .toctree-expand:before {
-  color: inherit !important;
+.wy-menu-vertical li.toctree-l2.bf-nav-branch {
+  --bf-nav-indent: 26px;
 }
 
-.wy-menu-vertical li.current > a button.toctree-expand,
-.wy-menu-vertical li.current ul li.current > a button.toctree-expand,
-.wy-menu-vertical li.current > a span.toctree-expand,
-.wy-menu-vertical li.current ul li.current > a span.toctree-expand,
-.wy-menu-vertical li.current > a i.toctree-expand,
-.wy-menu-vertical li.current ul li.current > a i.toctree-expand,
-.wy-menu-vertical li.current > a .toctree-expand,
-.wy-menu-vertical li.current ul li.current > a .toctree-expand {
-  color: var(--bf-primary) !important;
+.wy-menu-vertical li.toctree-l3.bf-nav-branch {
+  --bf-nav-indent: 38px;
 }
 
-.wy-menu-vertical li.current > .toctree-expand,
-.wy-menu-vertical li.current > button.toctree-expand,
-.wy-menu-vertical li.current > span.toctree-expand,
-.wy-menu-vertical li.current > i.toctree-expand,
-.wy-menu-vertical li.current ul li.current > .toctree-expand,
-.wy-menu-vertical li.current ul li.current > button.toctree-expand,
-.wy-menu-vertical li.current ul li.current > span.toctree-expand,
-.wy-menu-vertical li.current ul li.current > i.toctree-expand {
-  color: var(--bf-primary) !important;
+.wy-menu-vertical li.bf-nav-branch > a {
+  min-height: 34px;
+  padding-left: calc(var(--bf-nav-indent) + 27px);
 }
 
-/* Mobile top bar. The theme hard-codes white text and a white hamburger for a
-   dark green bar; on our white sidebar colour that left the bar looking empty
-   — no title, no way to find the menu. */
+.wy-menu-vertical li.bf-nav-branch > button.toctree-expand {
+  position: absolute;
+  z-index: 1;
+  top: 4px;
+  left: calc(var(--bf-nav-indent) - 3px);
+  width: 26px;
+  height: 26px;
+  margin: 0;
+  border-radius: 5px;
+  color: var(--bf-sidebar-muted);
+}
+
+.wy-menu-vertical li.bf-nav-branch > button.toctree-expand:hover {
+  background: var(--bf-sidebar-hover);
+  color: var(--bf-link);
+}
+
+.wy-menu-vertical li.bf-nav-branch > button.toctree-expand[aria-expanded="true"]::before {
+  content: "\f147";
+}
+
 .wy-nav-top {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 10px 16px;
+  display: none;
+  padding: 0 12px;
   background: var(--bf-sidebar);
   border-bottom: 2px solid var(--bf-primary);
   color: var(--bf-sidebar-text);
@@ -346,13 +399,22 @@ body,
 }
 
 .wy-nav-top i {
-  /* The theme floats the hamburger; in a flex row that drops it out of the
-     layout and it lands on top of the title. */
   float: none;
-  flex: 0 0 auto;
   padding: 0;
-  color: var(--bf-primary);
+  color: var(--bf-link);
   font-size: 22px;
+}
+
+.bf-mobile-menu-toggle {
+  display: grid;
+  width: 44px;
+  height: 44px;
+  place-items: center;
+  flex: 0 0 auto;
+}
+
+.bf-mobile-nav-backdrop {
+  display: none;
 }
 
 .wy-nav-top img {
@@ -365,12 +427,8 @@ body,
 }
 
 .wy-breadcrumbs a {
-  color: #8a6100;
+  color: var(--bf-link);
   font-weight: 700;
-}
-
-.wy-breadcrumbs-aside a {
-  color: var(--bf-primary-dark);
 }
 
 .rst-content h1,
@@ -424,12 +482,23 @@ body,
 }
 
 .rst-content a {
-  color: #946600;
+  color: var(--bf-link);
   font-weight: 700;
 }
 
-.rst-content a:hover {
-  color: var(--bf-primary-dark);
+.rst-content :is(p, li, td, dd) a:not(.headerlink) {
+  text-decoration: underline;
+  text-underline-offset: 0.15em;
+}
+
+#search-results .context {
+  color: var(--bf-text-secondary);
+}
+
+.rst-content .highlighted {
+  background: #f1b93e;
+  box-shadow: 0 0 0 2px #f1b93e;
+  color: #171717;
 }
 
 .rst-content hr {
@@ -465,6 +534,8 @@ body,
   color: var(--bf-text);
   padding: 12px 14px;
   vertical-align: top;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .rst-content table.docutils tbody tr:nth-child(even) td,
@@ -518,6 +589,31 @@ html[data-bf-theme="dark"] .rst-content code.literal {
   color: #f5f5f5;
   font-size: 13px;
   line-height: 1.6;
+}
+
+.rst-content .bf-copy-code {
+  display: block;
+  min-width: 66px;
+  min-height: 28px;
+  margin: 6px 8px 0 auto;
+  padding: 1px 8px;
+  border: 1px solid #636c76;
+  border-radius: 6px;
+  background: #21262d;
+  color: #e6edf3;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.rst-content .bf-copy-code:hover {
+  background: #30363d;
+}
+
+.rst-content .bf-copy-code:focus-visible,
+.rst-content pre[tabindex]:focus-visible {
+  outline: 2px solid #ffd36a;
+  outline-offset: -2px;
 }
 
 .rst-content .admonition,
@@ -657,90 +753,13 @@ html[data-bf-theme="dark"] .rst-content .error .admonition-title {
   color: #ff9b9b !important;
 }
 
-html[data-bf-theme="dark"] .wy-breadcrumbs a,
-html[data-bf-theme="dark"] .rst-content a {
-  color: #ffd36a;
-}
-
 footer,
 .rst-footer-buttons {
   color: var(--bf-text-secondary);
 }
 
-.bf-hero-banner {
-  margin: 0 0 24px;
-  border-radius: 10px;
-  overflow: hidden;
-  border: 1px solid var(--bf-border);
-}
-
-.bf-hero-banner img {
-  display: block;
-  width: 100%;
-  height: auto;
-  object-fit: cover;
-  max-height: 220px;
-}
-
-/* Copy first, action under it. As a `space-between` row the button squeezed the
-   paragraph into a narrow strip on anything below a wide desktop, and the call
-   to action sat outside the reading path instead of at the end of it. */
-.bf-docs-intro {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 16px;
-  margin: 8px 0 30px;
-  padding: 18px;
-  background: linear-gradient(135deg, #fff7e3 0%, #ffffff 72%);
-  border: 1px solid #efd38d;
-  border-radius: 10px;
-}
-
-.bf-docs-intro-kicker {
-  margin: 0 0 6px !important;
-  color: #8a6100 !important;
-  font-size: 12px !important;
-  font-weight: 800;
-  letter-spacing: 0.7px;
-  line-height: 1.3 !important;
-  text-transform: uppercase;
-}
-
-.bf-docs-intro-copy {
-  max-width: 760px;
-  margin: 0 !important;
-  color: var(--bf-text-secondary) !important;
-}
-
-.bf-docs-intro-button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 40px;
-  flex: 0 0 auto;
-  padding: 9px 14px;
-  background: var(--bf-primary);
-  border: 1px solid var(--bf-primary-dark);
-  border-radius: 8px;
-  color: #171717 !important;
-  font-size: 13px;
-  font-weight: 800;
-  text-decoration: none !important;
-}
-
-.bf-docs-intro-button:hover {
-  background: var(--bf-primary-dark);
-  color: #171717 !important;
-}
-
-html[data-bf-theme="dark"] .bf-docs-intro {
-  background: linear-gradient(135deg, #2a2110 0%, #1e1e1e 72%);
-  border-color: rgba(241, 185, 62, 0.45);
-}
-
-html[data-bf-theme="dark"] .bf-docs-intro-kicker {
-  color: #ffd36a !important;
+footer a {
+  color: var(--bf-link);
 }
 
 .bf-contributor-card {
@@ -772,7 +791,7 @@ html[data-bf-theme="dark"] .bf-docs-intro-kicker {
 
 .bf-contributor-kicker {
   margin-bottom: 4px;
-  color: var(--bf-primary-dark);
+  color: var(--bf-link);
   font-size: 11px;
   font-weight: 800;
   letter-spacing: 0.7px;
@@ -862,6 +881,10 @@ html[data-bf-theme="dark"] .bf-contributor-links a {
   -webkit-overflow-scrolling: touch;
 }
 
+.rst-content .wy-table-responsive[tabindex]:focus-visible {
+  outline-offset: -2px;
+}
+
 /* Keep the backtest parameter reference inside the content column. Fixed
    column proportions allow long descriptions and code labels to wrap instead
    of forcing overlapping cells or a wide horizontal table. */
@@ -906,7 +929,8 @@ section#backtest table.docutils td:nth-child(4) {
 /* Tablets, half-width and square windows: keep the sidebar, shrink it. */
 @media screen and (min-width: 769px) and (max-width: 1200px) {
   .wy-nav-side,
-  .wy-menu-vertical {
+  .wy-menu-vertical,
+  .wy-side-nav-search {
     width: 250px;
   }
 
@@ -925,25 +949,64 @@ section#backtest table.docutils td:nth-child(4) {
   }
 }
 
-/* Square-ish windows (an 800×800 or 1000×1000 desktop window): vertical space
-   is as scarce as horizontal, so trim the banner rather than the text. */
 @media screen and (max-aspect-ratio: 5 / 4) and (max-width: 1200px) {
-  .bf-hero-banner img {
-    max-height: 150px;
-  }
-
   .wy-nav-content {
     min-height: 0;
   }
 }
 
 @media screen and (max-width: 768px) {
+  html {
+    scroll-padding-top: 54px;
+  }
+
+  .wy-nav-top {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    position: sticky;
+    top: 0;
+    z-index: 210;
+  }
+
+  .wy-nav-top::before,
+  .wy-nav-top::after {
+    display: none;
+  }
+
+  .wy-side-nav-search {
+    width: 100%;
+  }
+
+  /* Keep the menu and its dismissal control visible while the drawer is open. */
+  .bf-mobile-nav-open {
+    overflow: hidden;
+  }
+
+  .bf-mobile-nav-open .wy-nav-side.shift {
+    top: 46px;
+    width: min(320px, calc(100% - 32px));
+    min-height: 0;
+    padding-bottom: 0;
+  }
+
+  .bf-mobile-nav-open .wy-side-scroll {
+    overscroll-behavior: contain;
+  }
+
+  .bf-mobile-nav-backdrop:not([hidden]) {
+    position: fixed;
+    inset: 0;
+    z-index: 190;
+    display: block;
+    background: rgba(0, 0, 0, 0.55);
+  }
+
   .wy-nav-content {
     padding: 26px 18px;
     min-height: 0;
   }
 
-  /* The theme's mobile bar is fixed at the top; content must clear it. */
   .wy-nav-content-wrap {
     margin-left: 0;
   }
@@ -961,18 +1024,6 @@ section#backtest table.docutils td:nth-child(4) {
     font-size: 18px;
   }
 
-  .bf-hero-banner img {
-    max-height: 140px;
-  }
-
-  .bf-docs-intro {
-    padding: 16px;
-  }
-
-  .bf-docs-intro-button {
-    width: 100%;
-  }
-
   .bf-contributor-card {
     align-items: flex-start;
     flex-direction: column;
@@ -985,7 +1036,8 @@ section#backtest table.docutils td:nth-child(4) {
   .rst-content .wy-table-responsive td,
   .rst-content .wy-table-responsive th,
   .rst-content table.docutils td code,
-  .rst-content table.docutils th code {
+  .rst-content table.docutils th code,
+  .rst-content table.docutils code .pre {
     white-space: normal;
     overflow-wrap: anywhere;
   }
@@ -1027,10 +1079,6 @@ section#backtest table.docutils td:nth-child(4) {
     display: block;
     float: none;
     margin-top: 6px;
-  }
-
-  .bf-hero-banner img {
-    max-height: 110px;
   }
 
   .bf-contributor-avatar {

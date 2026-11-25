@@ -18,25 +18,22 @@ This reference covers the surface relevant to **students**, **instructors**
 moderation, review-queue, and back-office operations are out of scope and are
 not part of the public API.
 
-```{admonition} Availability — not yet commercially live
-:class: warning
+```{admonition} Checkout availability
 
-The Education API is **implemented and documented for integration planning**,
-but the commerce path (checkout, purchase, and payout) is **not yet
-operationally enabled**. The payment provider capability is still
-`configuration_pending` (Shopier), there is no production commerce server
-provisioned, and public availability is subject to go-live. Treat the
-checkout/purchase/payout flows described below as **planned/not-live** until an
-operational go-live is announced; do not integrate them against production as if
-they were a live public endpoint.
+Read [Commerce Capabilities](#get-commerce-capabilities) for the current
+storefront before showing a purchase action. A true `checkout_available` only
+describes the storefront capability. An individual product must also be
+purchasable. End-to-end purchase, refund, and payout availability for third-party
+integrations requires a separate launch confirmation.
 ```
 
 ---
 
 ## Authentication
 
-Education endpoints use the same authenticated session as the rest of the
-Beyin Finance API, presented as a Bearer token:
+Education operations that require authentication use a first-party Beyin Finance
+session, presented as a Bearer token. Developer API keys cannot authenticate
+these operations.
 
 ```
 Authorization: Bearer <session_token>
@@ -56,10 +53,11 @@ and what you own:
 | Authorization | Applies to | Failure |
 |---------------|-----------|---------|
 | **Authenticated session** | Student operations: checkout, orders, learning dashboard/library/progress, reviews, questions, certificates | `401` if the session is missing or invalid |
-| **Entitlement / ownership** | Reading a specific product's content — playback, progress, resume, reading progress — requires that you own (are entitled to) that product. Order and refund-request reads are restricted to the order's creator. | `403` (`entitlement_required`, or not the owner) |
+| **Entitlement / ownership** | Playback beyond previews, progress, and resume require entitlement to the product. Orders and refund requests are restricted to their owner. | `403` for missing entitlement. Order lookup returns `404` when no order is visible to the caller. |
 | **Leader role** | Every `/education/v1/studio/*` endpoint requires the caller to hold a community-leader (instructor) role | `401` if unauthenticated, `403` if authenticated without the leader role |
 
-A missing or invalid token returns HTTP 401; see [Errors](#errors).
+On operations that require authentication, a missing or invalid token returns
+HTTP 401. See [Errors](#errors).
 
 ---
 
@@ -90,16 +88,17 @@ restarting at page one. `limit` defaults to 20 and is capped at 50.
 
 ### Idempotency
 
-Every state-changing request (`POST`, `PUT`, `PATCH`, and destructive
-`DELETE`) requires an **`Idempotency-Key`** header:
+Send an **`Idempotency-Key`** header on operations that specify it:
 
 ```
 Idempotency-Key: 3f9a1c7e-2b8d-4a6f-9c1e-77b0a2d4e5f6
 ```
 
-Generate the key once per logical operation and reuse it for every retry.
-Replaying the same key returns the original result rather than performing the
-operation twice.
+Use a UUID or ULID. Generate it once per logical operation and preserve it and
+the request body for retries that the operation supports. Certificate
+issuance and refund creation can replay a stored result for the same key
+and body. A `409 idempotency_conflict` indicates the key was already used
+with a different body.
 
 ### Optimistic concurrency (ETag / If-Match)
 
@@ -119,8 +118,9 @@ A typical student journey and the endpoints for each step:
    [product](#get-product-detail), preview its
    [curriculum](#get-curriculum-preview) and read
    [reviews](#list-product-reviews).
-2. **Buy** — Create a [checkout session](#create-checkout-session), then poll
-   the [order](#get-order-status) until it is paid.
+2. **Buy** — Check [commerce availability](#get-commerce-capabilities). If the
+   product is purchasable, create a [checkout session](#create-checkout-session)
+   and check the [order](#get-order-status) for payment and entitlement.
 3. **Learn** — Find purchases in your [library](#list-my-library), open the
    [dashboard](#get-my-dashboard), [resume](#get-resume-target) where you left
    off, and stream lessons through a
@@ -223,9 +223,10 @@ holder, issue date).
 
 `GET /education/v1/commerce/capabilities`
 
-Storefront commerce capabilities and feature flags — for example whether
-checkout is currently open. Clients should read this before showing purchase
-UI.
+Returns `data.checkout_available`, `data.storefront`, and `data.reason`, along
+with details about supported checkout modes. Send the actual client storefront
+in `X-Platform` (`web`, `windows`, `android`, or `ios`). Use the current response
+and the product's eligibility to decide whether to show a purchase action.
 
 **Errors:** 429 rate limited.
 
@@ -233,16 +234,22 @@ UI.
 
 ## Student Endpoints
 
-These endpoints require an authenticated session. Where noted, they additionally
-require entitlement to (ownership of) the referenced product, or restrict access
-to the resource's owner.
+Student endpoints require an authenticated session except for guest playback
+of preview lessons. Where noted, accessing a resource also requires entitlement
+or ownership.
 
 ### Create Checkout Session
 
 `POST /education/v1/checkouts`
 
-Initiates a purchase. Requires an `Idempotency-Key` header. Returns a checkout
-session the client uses to complete payment.
+Initiates a purchase. Requires an `Idempotency-Key` header. Check `data.action`
+before sending a customer to payment. `mode: "unavailable"` means checkout
+cannot continue. Use the server's [order status](#get-order-status) to verify
+payment and entitlement after checkout.
+
+If the response is lost, stop automatic retries. A repeated request can
+create another order even if it sends the same `Idempotency-Key`. If the
+client has an order ID, check its status before initiating checkout again.
 
 **Errors:** 400 validation, 401 unauthorized, 409 conflict (duplicate),
 422 unprocessable (e.g. checkout closed / not purchasable), 429 rate limited.
@@ -254,7 +261,7 @@ session the client uses to complete payment.
 Owner-scoped order detail (only the order's creator can read it). Poll this after checkout to observe payment
 progress and entitlement grant.
 
-**Errors:** 401, 403 not owner, 404 not found, 429.
+**Errors:** 401, 404 order unavailable to the caller, 429.
 
 ### Get My Dashboard
 
@@ -305,8 +312,9 @@ Returns updated enrollment progress.
 
 `POST /education/v1/products/{product_id}/playback-sessions`
 
-Starts a secure video playback session after an entitlement check. Requires
-`Idempotency-Key`. Returns the session and playback credentials.
+Starts a secure video playback session. Guests can request lessons marked as
+previews. Other lessons require a first-party session and entitlement to the
+product. The response includes short-lived playback credentials.
 
 **Errors:** 401, 403 no entitlement, 409, 429. Returns `201 Created`.
 
@@ -521,7 +529,8 @@ Your transfers, cursor paginated.
 
 `POST /education/v1/studio/uploads/{upload_id}/part-urls`
 Batch presigned URLs for **missing parts only** (max 16 per call). Requires
-`Idempotency-Key`.
+`Idempotency-Key`. Each URL expires as indicated by the response. Keep these
+URLs out of logs and shared caches and use them only for the intended upload.
 
 **Errors:** 400, 401, 403, 404, 409, 429.
 
@@ -657,10 +666,20 @@ continue to accrue but are not disbursed.
 
 ## Errors
 
-All errors return a JSON body with a descriptive message:
+Education API errors use a nested JSON `error` object. Use the HTTP status and
+`error.code` for program decisions. `error.field_errors` is present on some
+validation failures.
 
 ```json
-{"error": "Descriptive error message"}
+{
+  "error": {
+    "code": "validation_failed",
+    "message": "One or more fields are invalid.",
+    "retryable": false,
+    "correlation_id": "example-request-id",
+    "field_errors": [{"field": "product_id", "code": "required"}]
+  }
+}
 ```
 
 | Status | Meaning |
@@ -674,6 +693,8 @@ All errors return a JSON body with a descriptive message:
 | 422 | Unprocessable — request is well-formed but violates a business rule (e.g. checkout closed, refund outside window) |
 | 429 | Rate limited — retry after backoff |
 
-Retry `429` with exponential backoff and jitter. On `412`, re-read the resource
-to obtain the current ETag before retrying. On `409` for an idempotent
-operation, treat the stored result as authoritative rather than resubmitting.
+For `429`, honor `Retry-After` when supplied and use backoff with jitter. On
+`412`, re-read the resource and reconcile your edits with the current version
+before making a new request. On `409`, check `error.code` and the resource
+state before retrying. For support requests, share the correlation ID and
+redact Bearer tokens and signed URLs.

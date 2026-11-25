@@ -26,12 +26,9 @@ source_suffix = {
 }
 
 templates_path = ['_templates']
-exclude_patterns = [
-    'runtime-integration-notes.md',
-]
-
 html_theme = 'sphinx_rtd_theme'
 html_static_path = ['_static']
+pygments_style = 'github-dark'
 ogp_image = '_static/hero_banner.png'
 html_css_files = ['beyin.css']
 html_js_files = ['beyin-theme.js']

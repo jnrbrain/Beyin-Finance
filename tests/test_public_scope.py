@@ -7,14 +7,18 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 ENDPOINTS = (ROOT / "docs" / "endpoints.md").read_text(encoding="utf-8")
+PUBLISHED_FILES = (
+    "README.md",
+    "docs/index.rst",
+    "docs/quickstart.md",
+    "docs/strategy-backtest.md",
+    "docs/troubleshooting.md",
+    "docs/endpoints.md",
+    "docs/education.md",
+    "docs/contributors.md",
+)
 PUBLISHED_SOURCE = "\n".join(
-    [
-        (ROOT / "README.md").read_text(encoding="utf-8"),
-        (ROOT / "docs" / "index.rst").read_text(encoding="utf-8"),
-        ENDPOINTS,
-        (ROOT / "docs" / "education.md").read_text(encoding="utf-8"),
-        (ROOT / "docs" / "contributors.md").read_text(encoding="utf-8"),
-    ]
+    (ROOT / path).read_text(encoding="utf-8") for path in PUBLISHED_FILES
 )
 
 
@@ -69,6 +73,7 @@ class PublicReferenceScopeTests(unittest.TestCase):
         "signal_entry_preview",
         "signal_entry_submit",
         "strategy_delete",
+        "strategy_cancel",
         "strategy_detail",
         "strategy_edit",
         "strategy_generate",
@@ -77,6 +82,7 @@ class PublicReferenceScopeTests(unittest.TestCase):
         "strategy_visibility",
     }
     PUBLIC_BACKTEST_ACTIONS = {
+        "cancel",
         "coin_result",
         "delete_backtest",
         "estimate",
@@ -139,6 +145,18 @@ class PublicReferenceScopeTests(unittest.TestCase):
         )
         self.assertEqual(backtest_actions, self.PUBLIC_BACKTEST_ACTIONS)
 
+    def test_published_json_examples_are_valid(self):
+        for path in PUBLISHED_FILES:
+            source = (ROOT / path).read_text(encoding="utf-8")
+            blocks = re.finditer(r"^```json[ \t]*\n(.*?)^```$", source, re.M | re.S)
+            for block in blocks:
+                line = source.count("\n", 0, block.start()) + 1
+                with self.subTest(path=path, line=line):
+                    json.loads(block.group(1))
+
+    def test_runtime_notes_are_outside_the_public_repository(self):
+        self.assertFalse(any(ROOT.rglob("runtime-integration-notes.md")))
+
     def test_market_ticker_contract_uses_beyin_api(self):
         self.assertIn(
             "GET /tradingdata?request_type=market_ticker",
@@ -199,13 +217,6 @@ class PublicReferenceScopeTests(unittest.TestCase):
             self.assertNotIn(f'"{field}"', strategy_reference)
             self.assertNotIn(f"| `{field}` |", strategy_reference)
         self.assertNotIn("fire-and-forget OCO pair", create_section)
-
-        runtime_notes = (ROOT / "docs" / "runtime-integration-notes.md").read_text(
-            encoding="utf-8"
-        )
-        for field in advanced_fields:
-            self.assertNotIn(f"`{field}`", runtime_notes)
-        self.assertNotIn("DONE (documented in endpoints.md Create Strategy", runtime_notes)
 
     # Machine-readable `reason` / status tokens that clients switch on. These
     # are part of the public API contract (the app and third-party integrators
